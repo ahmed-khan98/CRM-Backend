@@ -13,16 +13,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Role {
-  id   String @id @default(auto()) @map("_id") @db.ObjectId
-  name String @unique
-  User User[]
+model Admin {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  email    String @unique
+  password String
 }
 
 model User {
-  id     String  @id @default(auto()) @map("_id") @db.ObjectId
-  role   Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  email  String  @unique
-  name   String?
-  roleId String  @db.ObjectId
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  email    String  @unique
+  name     String?
+  password String
+  products product[]
+}
+
+model product {
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  name String @unique
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @db.ObjectId
 }

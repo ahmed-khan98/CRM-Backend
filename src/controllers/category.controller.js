@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { Category } from "../models/category.js";
+import { Category } from "../models/category.model.js";
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
@@ -45,7 +45,6 @@ const updateCategory = asyncHandler(async (req,res)=>{
         throw new ApiError('500','internel server error')
     }
   
-
     return res.status(200).json(
         new ApiResponse(200, category, "category updated Successfully")
     )

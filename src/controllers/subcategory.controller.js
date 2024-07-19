@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { Subcategory } from "../models/subcategory.js";
-import { Category } from "../models/category.js";
+import { Subcategory } from "../models/subcategory.model.js";
+import { Category } from "../models/category.model.js";
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"

@@ -3,8 +3,8 @@ import { ApiError } from "../utils/ApiError.js";
 import { Product } from "../models/product.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { Category } from "../models/category.js";
-import { Subcategory } from "../models/subcategory.js";
+import { Category } from "../models/category.model.js";
+import { Subcategory } from "../models/subcategory.model.js";
 
 const createProduct = asyncHandler(async (req, res) => {
   const { name, description, price, categoryId, subcategoryId, stock } =req.body;

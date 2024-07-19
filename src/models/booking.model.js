@@ -33,5 +33,5 @@ const bookingSchema = new Schema(
     timestamps: true,
   }
 );
-
+  
 export const Booking = mongoose.model("Booking", bookingSchema);

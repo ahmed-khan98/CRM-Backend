@@ -35,6 +35,9 @@ const createBookingSlots = asyncHandler(async (req, res) => {
       if (!startTime || !endTime) {
         throw new ApiError(400, "Each slot must have startTime and endTime")
       }
+      if (!isSameDate(startTime, date) || !isSameDate(endTime, date)) {
+        throw new ApiError(400, "startTime and endTime must have the same date");
+      }
 
       if (new Date(startTime) >= new Date(endTime)) {
         throw new ApiError(400, "startTime must be less than endTime")
@@ -43,9 +46,6 @@ const createBookingSlots = asyncHandler(async (req, res) => {
       if (!isTwoHoursDuration(startTime, endTime)) {
         throw new ApiError(400, "Each slot duration must be exactly 2 hours")
       }
-    //   if (!isSameDate(startTime, date) || !isSameDate(endTime, date)) {
-    //     throw new ApiError(400, "startTime and endTime must have the same date");
-    //   }
     }
     const existingBooking = await Booking.findOne({ date });
 
@@ -69,7 +69,7 @@ const createBookingSlots = asyncHandler(async (req, res) => {
       existingBooking.slots.push(...slots);
       const booking= await existingBooking.save();
       return res.status(200).json(
-        new ApiResponse(200,booking, "Slot Created Successfully----->>")
+        new ApiResponse(200,booking, "Slot Created Successfully")
     )
 
     } else {

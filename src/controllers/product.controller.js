@@ -7,9 +7,8 @@ import { Category } from "../models/category.model.js";
 import { Subcategory } from "../models/subcategory.model.js";
 
 const createProduct = asyncHandler(async (req, res) => {
-  const { name, description, price, categoryId, subcategoryId, stock } =req.body;
-
-    if ([name, description, price, categoryId, subcategoryId, stock].some(field => field === undefined || field === "")) {
+  const { name, description, price, categoryId, subcategoryId,  stock,isFeatured} =req.body;
+    if ([name, description, price, categoryId, subcategoryId].some(field => field === undefined || field === "")) {
       throw new ApiError(400, "All fields are required");
     }
 
@@ -39,16 +38,23 @@ const createProduct = asyncHandler(async (req, res) => {
   );
 
   const imageDetails = cloudinaryUploads.map((result) => result.secure_url);
-
-  const product = await Product.create({
+  const productData = {
     name,
     description,
     price,
     categoryId,
     subcategoryId,
-    stock,
-    images: imageDetails,
-  });
+    images: imageDetails
+  };
+
+  if (stock !== undefined) {
+    productData.stock = stock;
+  }
+  if (isFeatured) {
+    productData.isFeatured = isFeatured;
+  }
+
+  const product = await Product.create(productData);
 
   const createdProduct = await Product.findById(product._id);
 
@@ -138,7 +144,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
 const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, description, price, categoryId, subcategoryId, stock } = req.body;
+  const { name, description, price, categoryId, subcategoryId, stock,isFeatured } = req.body;
 
 if ([name, description, price, categoryId, subcategoryId, stock].some(field => field === undefined || field === "")) {
     throw new ApiError(400, "All fields are required");
@@ -177,15 +183,23 @@ if ([name, description, price, categoryId, subcategoryId, stock].some(field => f
     imageDetails = cloudinaryUploads;
   }
 
-  const product= await Product.findByIdAndUpdate(id,{
+  const productData = {
     name,
     description,
     price,
     categoryId,
     subcategoryId,
-    stock,
-    ...(imageDetails.length > 0 && { images: imageDetails }),
-    },{new:true})
+    ...(imageDetails.length > 0 && { images: imageDetails })
+  };
+
+  if (stock !== undefined) {
+    productData.stock = stock;
+  }
+  if (isFeatured !== undefined) {
+    productData.isFeatured = isFeatured;
+  }
+
+  const product= await Product.findByIdAndUpdate(id,productData,{new:true})
     
     if(!product){
         throw new ApiError('500','internel server error')

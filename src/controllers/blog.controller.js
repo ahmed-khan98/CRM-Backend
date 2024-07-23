@@ -1,105 +1,126 @@
-
 import { Blog } from "../models/blog.model.js";
-import {ApiError} from "../utils/ApiError.js"
-import {ApiResponse} from "../utils/ApiResponse.js"
-import {asyncHandler} from "../utils/asyncHandler.js"
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
-const createBlog = asyncHandler(async (req,res)=>{
+const createBlog = asyncHandler(async (req, res) => {
+  const { title, description } = req.body;
+  if (
+    [title, description].some((field) => field === undefined || field === "")
+  ) {
+    throw new ApiError(400, "All fields are required");
+  }
 
-    const {title,description} = req.body
-    if (
-        [ title,description].some(field => field === undefined || field === "")){
-        throw new ApiError(400, "All fields are required")
-    }
+  const existBlog = await Blog.findOne({ title });
+  if (existBlog) {
+    throw new ApiError(409, "Blog title already exists");
+  }
+  const blog = await Blog.create({
+    title,
+    description,
+  });
 
-    const existBlog= await Blog.findOne({title})
-    if (existBlog) {
-        throw new ApiError(409, "Blog title already exists")
-    }
-    const blog= await Blog.create({
-        title,description
-    })
-    
-    if(!blog){
-        throw new ApiError('500','internel server error')
-    }
-   
-    return res.status(200).json(
-        new ApiResponse(200,blog, "Blog Created Successfully")
-    )
-})
+  if (!blog) {
+    throw new ApiError("500", "internel server error");
+  }
 
-const updateBlog = asyncHandler(async (req,res)=>{
-    const {id}=req.params
-    const {title,description} = req.body
-    console.log(req.body,'req.body------------------->>>')
+  return res
+    .status(200)
+    .json(new ApiResponse(200, blog, "Blog Created Successfully"));
+});
 
-    const existBlog= await Blog.findById(id)
+const updateBlog = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { title, description } = req.body;
+  console.log(req.body, "req.body------------------->>>");
 
-    if (!existBlog) {
-        throw new ApiError(409, "Blog not found")
-    }
+  const existBlog = await Blog.findById(id);
 
-    const blog= await Blog.findByIdAndUpdate(id,{
-        title,description
-    },{new:true})
-    
-    if(!blog){
-        throw new ApiError('500','internel server error')
-    }
-  
-    return res.status(200).json(
-        new ApiResponse(200, blog, "Blog updated Successfully")
-    )
-})
+  if (!existBlog) {
+    throw new ApiError(409, "Blog not found");
+  }
 
-const deleteBlog = asyncHandler(async (req,res)=>{
-    const {id} = req.params
+  const blog = await Blog.findByIdAndUpdate(
+    id,
+    {
+      title,
+      description,
+    },
+    { new: true }
+  );
 
-    const existBlog= await Blog.findById(id)
+  if (!blog) {
+    throw new ApiError("500", "internel server error");
+  }
 
-    if (!existBlog) {
-        throw new ApiError(409, "Blog not found")
-    }
-    const blog= await Blog.findByIdAndDelete(id)
-    
-    if(!blog){
-        throw new ApiError('500','internel server error')
-    }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, blog, "Blog updated Successfully"));
+});
 
-    return res.status(200).json(
-        new ApiResponse(200, blog, "Blog deleted Successfully")
-    )
-})  
+const deleteBlog = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-const getAllBlogs = asyncHandler(async(req,res)=>{
-    const blogs = await Blog.find();
-    if(!blogs){
-        throw new ApiError('404','Blogs not found')   
-    }
-    return res.status(200).json(
-        new ApiResponse(200, blogs, "All Blogs found")
-    )
-})
+  const existBlog = await Blog.findById(id);
 
-const getBlogById = asyncHandler(async(req,res)=>{
-    const { id } = req.params;
-      const blog = await Blog.findById(id);
-      if (!blog) {
-        throw new ApiError(404,'Blog not found')
-        // return res.status(404).json({ error: 'Blog not found' });
-      }
-      return res.status(200).json(
-        new ApiResponse(200, blog, "Blog Found")
-    )
-    
-})
+  if (!existBlog) {
+    throw new ApiError(409, "Blog not found");
+  }
+  const blog = await Blog.findByIdAndDelete(id);
 
+  if (!blog) {
+    throw new ApiError("500", "internel server error");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, blog, "Blog deleted Successfully"));
+});
+
+const getAllBlogs = asyncHandler(async (req, res) => {
+  const blogs = await Blog.find();
+  if (!blogs) {
+    throw new ApiError("404", "Blogs not found");
+  }
+  return res.status(200).json(new ApiResponse(200, blogs, "All Blogs found"));
+});
+
+const getBlogById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const blog = await Blog.findById(id);
+  if (!blog) {
+    throw new ApiError(404, "Blog not found");
+    // return res.status(404).json({ error: 'Blog not found' });
+  }
+  return res.status(200).json(new ApiResponse(200, blog, "Blog Found"));
+});
+
+const uploadBlogImages = asyncHandler(async (req, res) => {
+  const image = req.files?.image[0]?.path;
+
+  if (!image) {
+    throw new ApiError(400, "image field is required");
+  }
+
+  const img = await uploadOnCloudinary(image);
+
+  if (!img) {
+    throw new ApiError(400, "image not uploaded");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, { image: img.url }, "images Upload Successfully")
+    );
+});
 
 export {
-    createBlog,
-    getAllBlogs,
-    updateBlog,
-    deleteBlog,
-    getBlogById
-}
+  createBlog,
+  getAllBlogs,
+  updateBlog,
+  deleteBlog,
+  getBlogById,
+  uploadBlogImages,
+};

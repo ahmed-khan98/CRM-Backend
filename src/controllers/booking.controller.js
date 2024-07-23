@@ -20,11 +20,10 @@ const isSameDate = (slotDate, bookingDate) => {
       slot?.getMonth() === bookingDate?.getMonth() &&
       slot?.getDate() === bookingDate?.getDate()
     );
-  };
+};
 
 const createBookingSlots = asyncHandler(async (req, res) => {
     const { date, slots } = req.body;
-    console.log(date,'date--------->>')
     if (!date || !slots || !Array.isArray(slots) || slots.length === 0) {
         throw new ApiError(400, "Please provide a date and an array of slots")
     }

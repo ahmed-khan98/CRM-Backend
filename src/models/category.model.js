@@ -13,6 +13,7 @@ const categorySchema = new Schema(
 categorySchema.pre("findOneAndDelete", async function (next) {
   const categoryId = this.getQuery()["_id"];
   await mongoose.model("Subcategory").deleteMany({ categoryId });
+  await mongoose.model("Product").deleteMany({ categoryId });
   next();
 });
 

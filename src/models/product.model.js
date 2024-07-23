@@ -17,6 +17,11 @@ const productSchema = new Schema(
     },
     stock: { type: Number, default: 0 },
     images: [{ type: String }],
+    isFeatured: {
+      type: Number,
+      default: 0,  
+      enum: [0, 1],
+    },
     createdAt: { type: Date, default: Date.now },
   },
   {

@@ -16,7 +16,12 @@ const router = Router()
 
 router.route("/adminLogin").post(loginUser)
 
-router.route("/register").post(upload.single("avatar"),registerUser)
+router.route("/register").post( upload.fields([
+    {
+        name: "avatar",
+        maxCount: 1
+    }, 
+]),registerUser)
 
 router.route("/userLogin").post(loginUser)
 

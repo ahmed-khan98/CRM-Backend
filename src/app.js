@@ -24,6 +24,7 @@ import subcategoryRouter from './routes/subcategory.routes.js'
 import productRouter from './routes/product.routes.js'
 import blogRouter from './routes/blog.routes.js'
 import bookingRouter from './routes/booking.routes.js'
+import dashboardRouter from './routes/dashboardCount.routes.js'
 
 //routes declaration
 
@@ -34,6 +35,7 @@ app.use("/api/v1/admin/subcategory", subcategoryRouter)
 app.use("/api/v1/admin/product", productRouter)
 app.use("/api/v1/admin/blog", blogRouter)
 app.use("/api/v1/admin/booking", bookingRouter)
+app.use("/api/v1/admin",dashboardRouter)
 
 
 

@@ -4,6 +4,10 @@ import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 const categorySchema = new Schema(
   {
     name: { type: String, required: true },
+    image: {
+      type: String,
+      required: true,
+    },
   },
   {
     timestamps: true,

@@ -4,11 +4,11 @@ import { createBookingSlots, deleteBooking, getAllSlot } from "../controllers/bo
 
 const router = Router()
 
-router.use(verifyJWT)
+// router.use(verifyJWT)
 
 router.route('/').get(getAllSlot)
-router.route('/add').post(createBookingSlots)
-router.route('/:id').delete(deleteBooking)
+router.route('/add').post(verifyJWT,createBookingSlots)
+router.route('/:id').delete(verifyJWT,deleteBooking)
 // patch(updateSlot).get(getSlotById).delete(deleteSlot)
 
 export default router;

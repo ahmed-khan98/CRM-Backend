@@ -68,10 +68,6 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const getAllProducts = asyncHandler(async (req, res) => {
-  // const product = await Product.find();
-  // if (!product) {
-  //   throw new ApiError("404", "Product not found");
-  // }
 
   const products = await Product.aggregate([
     {
@@ -98,6 +94,7 @@ const getAllProducts = asyncHandler(async (req, res) => {
         price: 1,
         stock: 1,
         images: 1,
+        isFeatured: 1,
         categoryId: 1,
         subcategoryId: 1,
         category: { $arrayElemAt: ['$category.name', 0] },
@@ -121,6 +118,15 @@ const getProductById = asyncHandler(async (req, res) => {
     // return res.status(404).json({ error: 'Product not found' });
   }
   return res.status(200).json(new ApiResponse(200, product, "Product Found"));
+});
+
+const getAllFeaturedProducts = asyncHandler(async (req, res) => {
+  const products = await Product.find({ isFeatured: 1 });
+  if (!products || products.length === 0) {
+    throw new ApiError(404, "No featured products found");
+    // return res.status(404).json({ error: 'No featured products found' });
+  }
+  return res.status(200).json(new ApiResponse(200, products, "All Featured Products Found"));
 });
 
 const deleteProduct = asyncHandler(async (req, res) => {
@@ -165,11 +171,6 @@ if ([name, description, price, categoryId, subcategoryId, stock].some(field => f
     throw new ApiError(404, "Sub Category not found");
   }
 
-  // const existedProduct = await Product.findOne({ name });
-
-  // if (existedProduct) {
-  //   throw new ApiError(409, "Product with name already exists");
-  // }
   let imageDetails = [];
   const images1 = req.files;
 
@@ -199,7 +200,12 @@ if ([name, description, price, categoryId, subcategoryId, stock].some(field => f
     productData.isFeatured = isFeatured;
   }
 
-  const product= await Product.findByIdAndUpdate(id,productData,{new:true})
+  // const product= await Product.findByIdAndUpdate(id,productData,{new:true})
+  const product= await Product.findByIdAndUpdate(id,
+    {
+        $set: productData
+    },
+    {new: true})
     
     if(!product){
         throw new ApiError('500','internel server error')
@@ -215,6 +221,7 @@ export {
   createProduct,
   getAllProducts,
   getProductById,
+  getAllFeaturedProducts,
   deleteProduct,
   updateProduct,
 };

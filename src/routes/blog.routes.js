@@ -12,16 +12,11 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.use(verifyJWT);
+// router.use(verifyJWT);
 
 router.route("/").get(getAllBlogs);
-router.route("/upload-blog-images").post( upload.fields([
-    {
-        name: "image",
-        maxCount: 1
-    }, 
-]),uploadBlogImages);
-router.route("/add").post(createBlog);
-router.route("/:id").patch(updateBlog).delete(deleteBlog).get(getBlogById);
+router.route("/upload-blog-images").post(verifyJWT,upload.single("image"),uploadBlogImages);
+router.route("/add").post(verifyJWT,upload.single("image"),createBlog);
+router.route("/:id").patch(verifyJWT,upload.single("image"),updateBlog).delete(verifyJWT,deleteBlog).get(getBlogById);
 
 export default router;

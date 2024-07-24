@@ -16,9 +16,23 @@ const createBlog = asyncHandler(async (req, res) => {
   if (existBlog) {
     throw new ApiError(409, "Blog title already exists");
   }
+
+  const blogImg = req.file;
+
+  if (!blogImg) {
+    throw new ApiError(400, "Blog Banner Image is required");
+  }
+
+  const image = await uploadOnCloudinary(blogImg, "oaxs-bloag-banner");
+
+  if (!image.url) {
+    throw new ApiError(400, "Blog Banner image is not uploaded");
+  }
+
   const blog = await Blog.create({
     title,
     description,
+    image: image?.url,
   });
 
   if (!blog) {
@@ -33,7 +47,6 @@ const createBlog = asyncHandler(async (req, res) => {
 const updateBlog = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { title, description } = req.body;
-  console.log(req.body, "req.body------------------->>>");
 
   const existBlog = await Blog.findById(id);
 
@@ -41,14 +54,31 @@ const updateBlog = asyncHandler(async (req, res) => {
     throw new ApiError(409, "Blog not found");
   }
 
+  let image = "";
+  const blogImg = req.file;
+  if (blogImg) {
+    const img = await uploadOnCloudinary(blogImg, "oaxs-blog-banner");
+
+    if (!img.url) {
+      throw new ApiError(400, "blog banner image is not uploaded");
+    }
+    image = img?.url;
+  }
+
+  const blogData = {
+    title,
+    description,
+    ...(image !== "" && { image }),
+  };
+
   const blog = await Blog.findByIdAndUpdate(
     id,
     {
-      title,
-      description,
+      $set: blogData,
     },
     { new: true }
   );
+
 
   if (!blog) {
     throw new ApiError("500", "internel server error");
@@ -97,14 +127,14 @@ const getBlogById = asyncHandler(async (req, res) => {
 });
 
 const uploadBlogImages = asyncHandler(async (req, res) => {
-  const image = req.files?.image[0]?.path;
+  const image = req?.file;
+  console.log(image, "----------->>image");
 
   if (!image) {
     throw new ApiError(400, "image field is required");
   }
 
-  const img = await uploadOnCloudinary(image);
-
+  const img = await uploadOnCloudinary(image, "oaxs-blog");
   if (!img) {
     throw new ApiError(400, "image not uploaded");
   }

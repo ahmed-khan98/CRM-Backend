@@ -27,8 +27,15 @@ import bookingRouter from './routes/booking.routes.js'
 import dashboardRouter from './routes/dashboardCount.routes.js'
 
 //routes declaration
-
+//userRoute
 app.use("/api/v1/users", userRouter)
+app.use("/api/v1/user/category", categoryRouter)
+app.use("/api/v1/user/subcategory", subcategoryRouter)
+app.use("/api/v1/user/product", productRouter)
+app.use("/api/v1/user/blog", blogRouter)
+app.use("/api/v1/user/booking", bookingRouter)
+
+//adminRoute
 app.use("/api/v1/admin", userRouter)
 app.use("/api/v1/admin/category", categoryRouter)
 app.use("/api/v1/admin/subcategory", subcategoryRouter)

@@ -19,7 +19,6 @@ export const adminVerify = asyncHandler(async(req, _, next) => {
             
             throw new ApiError(401, "Invalid Access Token")
         }
-        console.log(user?.role,'----------->>>>user?.role');
 
         if (user?.role !== 'ADMIN') {
             

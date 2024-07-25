@@ -16,7 +16,7 @@ const createSubCategory = asyncHandler(async (req,res)=>{
     }
 
     if(!name){
-        throw new ApiError(400,'name field is required')
+        throw new ApiError(400,'name field is required')  
     }
     if(!categoryId){
         throw new ApiError(400,'Category ID is required')

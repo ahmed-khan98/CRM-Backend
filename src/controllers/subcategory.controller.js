@@ -22,10 +22,6 @@ const createSubCategory = asyncHandler(async (req,res)=>{
         throw new ApiError(400,'Category ID is required')
     }
 
-    const existSubCategory= await Subcategory.findOne({name})
-    if (existSubCategory) {
-        throw new ApiError(409, "sub category name already exists")
-    }
     const subCategory= await Subcategory.create({
         name,
         categoryId
@@ -55,10 +51,13 @@ const updateSubCategory = asyncHandler(async (req,res)=>{
     if (!existSubCategory) {
         throw new ApiError(409, "Sub category not found")
     }
-    const subCategory= await Subcategory.findByIdAndUpdate(id,{
-        name,
-        categoryId
-    },{new:true})
+
+    const subCategory = await Subcategory.findOneAndUpdate(
+      { _id: id },
+      { $set: { name } },
+      { new: true, }
+    );
+
     
     if(!subCategory){
         throw new ApiError('500','internel server error')
@@ -88,15 +87,6 @@ const deleteSubCategory = asyncHandler(async (req,res)=>{
     )
 })
 
-// const getAllSubCategories=(async(req,res)=>{
-//     const subCategories = await Subcategory.find();
-//     if(!subCategories){
-//         throw new ApiError('404','Category not found')   
-//     }
-//     return res.status(200).json(
-//         new ApiResponse(200, subCategories, "All Sub Category found")
-//     )
-// })
 
 const getAllSubCategories = async (req, res) => {
     try {

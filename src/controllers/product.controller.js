@@ -121,12 +121,69 @@ const getProductById = asyncHandler(async (req, res) => {
 });
 
 const getAllFeaturedProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find({ isFeatured: 1 });
-  if (!products || products.length === 0) {
-    throw new ApiError(404, "No featured products found");
-    // return res.status(404).json({ error: 'No featured products found' });
+  const products = await Product.aggregate([
+    {
+      $match:{isFeatured:1}
+    },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'categoryId',
+        foreignField: '_id',
+        as: 'category'
+      }
+    },
+    {
+      $lookup: {
+        from: 'subcategories',
+        localField: 'subcategoryId',
+        foreignField: '_id',
+        as: 'subcategory'
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        description: 1,
+        price: 1,
+        stock: 1,
+        images: 1,
+        isFeatured: 1,
+        categoryId: 1,
+        subcategoryId: 1,
+        category: { $arrayElemAt: ['$category.name', 0] },
+        subcategory: { $arrayElemAt: ['$subcategory.name', 0] }
+      }
+    }
+  ]);
+  if (!products) {
+    throw new ApiError(404, "Product not found");
   }
-  return res.status(200).json(new ApiResponse(200, products, "All Featured Products Found"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, products, "All product found"));
+})
+
+const getAllProductsByCategoryId = asyncHandler(async (req, res) => {
+  const { categoryId } = req.params;
+  const products = await Product.find({categoryId});
+  if (!products || products.length === 0) {
+    throw new ApiError(404, "No products found");
+  }
+  return res.status(200).json(new ApiResponse(200, products, "All Category Products Found"));
+});
+  
+const getAllProductsBySubCategoryId = asyncHandler(async (req, res) => {
+
+  const { subcategoryId } = req.params;
+  
+  const products = await Product.find({subcategoryId});
+  console.log(products,'--------------->>',subcategoryId)
+  if (!products || products.length === 0) {
+    throw new ApiError(404, "No products found");
+  }
+  return res.status(200).json(new ApiResponse(200, products, "All SubCataegory Products Found"));
 });
 
 const deleteProduct = asyncHandler(async (req, res) => {
@@ -222,6 +279,8 @@ export {
   getAllProducts,
   getProductById,
   getAllFeaturedProducts,
+  getAllProductsByCategoryId,
+  getAllProductsBySubCategoryId,
   deleteProduct,
   updateProduct,
 };

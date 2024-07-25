@@ -38,6 +38,7 @@ const uploadOnCloudinary = async (localFilePath) => {
     if (!localFilePath) return null;
 
     const { path, originalname } = localFilePath;
+    
     const res = await cloudinary.uploader.upload(path, {
       resource_type: "auto",
       public_id: originalname.split(".")[0],

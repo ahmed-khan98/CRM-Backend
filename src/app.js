@@ -25,10 +25,12 @@ import productRouter from './routes/product.routes.js'
 import blogRouter from './routes/blog.routes.js'
 import bookingRouter from './routes/booking.routes.js'
 import dashboardRouter from './routes/dashboardCount.routes.js'
+import { adminVerify } from "./middlewares/adminVerify.js"
+import { userVerify } from "./middlewares/userVerify.js"
 
 //routes declaration
 //userRoute
-app.use("/api/v1/users", userRouter)
+app.use("/api/v1/user", userRouter)
 app.use("/api/v1/user/category", categoryRouter)
 app.use("/api/v1/user/subcategory", subcategoryRouter)
 app.use("/api/v1/user/product", productRouter)
@@ -37,12 +39,12 @@ app.use("/api/v1/user/booking", bookingRouter)
 
 //adminRoute
 app.use("/api/v1/admin", userRouter)
-app.use("/api/v1/admin/category", categoryRouter)
-app.use("/api/v1/admin/subcategory", subcategoryRouter)
-app.use("/api/v1/admin/product", productRouter)
-app.use("/api/v1/admin/blog", blogRouter)
-app.use("/api/v1/admin/booking", bookingRouter)
-app.use("/api/v1/admin",dashboardRouter)
+app.use("/api/v1/admin/category",adminVerify,categoryRouter)
+app.use("/api/v1/admin/subcategory",adminVerify, subcategoryRouter)
+app.use("/api/v1/admin/product",adminVerify, productRouter)
+app.use("/api/v1/admin/blog", adminVerify,blogRouter)
+app.use("/api/v1/admin/booking",adminVerify, bookingRouter)
+app.use("/api/v1/admin",adminVerify,dashboardRouter)
 
 
 

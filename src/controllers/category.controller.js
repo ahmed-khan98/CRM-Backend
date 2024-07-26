@@ -1,8 +1,8 @@
-import mongoose from "mongoose";
-import { Category } from "../models/category.js";
+import { Category } from "../models/category.model.js";
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
 const createCategory = asyncHandler(async (req,res)=>{
     const {name}=req.body
@@ -14,14 +14,28 @@ const createCategory = asyncHandler(async (req,res)=>{
     if (existCategory) {
         throw new ApiError(409, "category name already exists")
     }
+
+    const categoryImg = req.file
+
+
+    if (!categoryImg) {
+        throw new ApiError(400, "Category Image is required")
+    }
+
+    const image = await uploadOnCloudinary(categoryImg,'oaxs-category')
+
+    if (!image.url) {
+        throw new ApiError(400, "Category image is not uploaded")
+    }
+    console.log('image.url-------=>>',image.url)
     const category= await Category.create({
-        name
+        name,
+        image:image?.url
     })
     
     if(!category){
         throw new ApiError('500','internel server error')
     }
-   
 
     return res.status(200).json(
         new ApiResponse(200, category, "Category Created Successfully")
@@ -37,15 +51,35 @@ const updateCategory = asyncHandler(async (req,res)=>{
     if (!existCategory) {
         throw new ApiError(409, "category not found")
     }
-    const category= await Category.findByIdAndUpdate(id,{
+
+    let image = '';
+    const categoryImg = req.file
+    if(categoryImg){
+        const img = await uploadOnCloudinary(categoryImg,'oaxs-category')
+    
+        if (!img.url) {
+            throw new ApiError(400, "Category image is not uploaded")
+        }
+        image=img?.url
+
+    }
+    
+     const categoryData = {
         name,
-    },{new:true})
+        ...(image !== '' && { image })
+      };
+
+
+    const category= await Category.findByIdAndUpdate(id,
+        {
+            $set: categoryData
+        },
+    {new:true})
     
     if(!category){
         throw new ApiError('500','internel server error')
     }
   
-
     return res.status(200).json(
         new ApiResponse(200, category, "category updated Successfully")
     )
@@ -81,6 +115,53 @@ const getAllCategories = asyncHandler(async(req,res)=>{
     )
 })
 
+const getAllCategoriesWithSubcategory = asyncHandler(async (req, res) => {
+    const categories = await Category.aggregate([
+      {
+        $lookup: {
+          from: 'subcategories', // Name of the subcategories collection
+          localField: '_id', // Field in Category collection
+          foreignField: 'categoryId', // Field in Subcategory collection that references Category
+          as: 'subcategories' // Name of the field to add to Category documents
+        }
+      },
+      {
+        $unwind: {
+          path: '$subcategories', // Unwind to get separate documents for each subcategory
+          preserveNullAndEmptyArrays: true // Keep categories without subcategories
+        }
+      },
+      {
+        $project: {
+          _id: 1, // Include category _id
+          name: 1, // Include category name
+          image:1,  
+          subcategories: {
+            _id: '$subcategories._id', // Include subcategory _id
+            name: '$subcategories.name' // Include subcategory name
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$_id', // Group by category _id
+          name: { $first: '$name' },
+          image: { $first: '$image' },
+          subcategories: { $push: '$subcategories' } // Aggregate subcategories into an array
+        }
+      }
+    ]);
+  
+    if (!categories) {
+      throw new ApiError(404, 'Category not found');
+    }
+  
+    return res.status(200).json(
+      new ApiResponse(200, categories, 'All Categories found')
+    );
+  });
+
+  
 const getCategoryById = asyncHandler(async(req,res)=>{
     const { id } = req.params;
       const category = await Category.findById(id);
@@ -100,5 +181,6 @@ export {
     getAllCategories,
     updateCategory,
     deleteCategory,
-    getCategoryById
+    getCategoryById,
+    getAllCategoriesWithSubcategory,
 }

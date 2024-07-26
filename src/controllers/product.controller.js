@@ -3,13 +3,12 @@ import { ApiError } from "../utils/ApiError.js";
 import { Product } from "../models/product.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { Category } from "../models/category.js";
-import { Subcategory } from "../models/subcategory.js";
+import { Category } from "../models/category.model.js";
+import { Subcategory } from "../models/subcategory.model.js";
 
 const createProduct = asyncHandler(async (req, res) => {
-  const { name, description, price, categoryId, subcategoryId, stock } =req.body;
-
-    if ([name, description, price, categoryId, subcategoryId, stock].some(field => field === undefined || field === "")) {
+  const { name, description, price, categoryId, subcategoryId,  stock,isFeatured} =req.body;
+    if ([name, description, price, categoryId, subcategoryId].some(field => field === undefined || field === "")) {
       throw new ApiError(400, "All fields are required");
     }
 
@@ -39,16 +38,23 @@ const createProduct = asyncHandler(async (req, res) => {
   );
 
   const imageDetails = cloudinaryUploads.map((result) => result.secure_url);
-
-  const product = await Product.create({
+  const productData = {
     name,
     description,
     price,
     categoryId,
     subcategoryId,
-    stock,
-    images: imageDetails,
-  });
+    images: imageDetails
+  };
+
+  if (stock !== undefined) {
+    productData.stock = stock;
+  }
+  if (isFeatured) {
+    productData.isFeatured = isFeatured;
+  }
+
+  const product = await Product.create(productData);
 
   const createdProduct = await Product.findById(product._id);
 
@@ -62,10 +68,6 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const getAllProducts = asyncHandler(async (req, res) => {
-  // const product = await Product.find();
-  // if (!product) {
-  //   throw new ApiError("404", "Product not found");
-  // }
 
   const products = await Product.aggregate([
     {
@@ -92,6 +94,7 @@ const getAllProducts = asyncHandler(async (req, res) => {
         price: 1,
         stock: 1,
         images: 1,
+        isFeatured: 1,
         categoryId: 1,
         subcategoryId: 1,
         category: { $arrayElemAt: ['$category.name', 0] },
@@ -117,6 +120,72 @@ const getProductById = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, product, "Product Found"));
 });
 
+const getAllFeaturedProducts = asyncHandler(async (req, res) => {
+  const products = await Product.aggregate([
+    {
+      $match:{isFeatured:1}
+    },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'categoryId',
+        foreignField: '_id',
+        as: 'category'
+      }
+    },
+    {
+      $lookup: {
+        from: 'subcategories',
+        localField: 'subcategoryId',
+        foreignField: '_id',
+        as: 'subcategory'
+      }
+    },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        description: 1,
+        price: 1,
+        stock: 1,
+        images: 1,
+        isFeatured: 1,
+        categoryId: 1,
+        subcategoryId: 1,
+        category: { $arrayElemAt: ['$category.name', 0] },
+        subcategory: { $arrayElemAt: ['$subcategory.name', 0] }
+      }
+    }
+  ]);
+  if (!products) {
+    throw new ApiError(404, "Product not found");
+  }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, products, "All product found"));
+})
+
+const getAllProductsByCategoryId = asyncHandler(async (req, res) => {
+  const { categoryId } = req.params;
+  const products = await Product.find({categoryId});
+  if (!products || products.length === 0) {
+    throw new ApiError(404, "No products found");
+  }
+  return res.status(200).json(new ApiResponse(200, products, "All Category Products Found"));
+});
+  
+const getAllProductsBySubCategoryId = asyncHandler(async (req, res) => {
+
+  const { subcategoryId } = req.params;
+  
+  const products = await Product.find({subcategoryId});
+  console.log(products,'--------------->>',subcategoryId)
+  if (!products || products.length === 0) {
+    throw new ApiError(404, "No products found");
+  }
+  return res.status(200).json(new ApiResponse(200, products, "All SubCataegory Products Found"));
+});
+
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -138,7 +207,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
 
 const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, description, price, categoryId, subcategoryId, stock } = req.body;
+  const { name, description, price, categoryId, subcategoryId, stock,isFeatured } = req.body;
 
 if ([name, description, price, categoryId, subcategoryId, stock].some(field => field === undefined || field === "")) {
     throw new ApiError(400, "All fields are required");
@@ -159,11 +228,6 @@ if ([name, description, price, categoryId, subcategoryId, stock].some(field => f
     throw new ApiError(404, "Sub Category not found");
   }
 
-  // const existedProduct = await Product.findOne({ name });
-
-  // if (existedProduct) {
-  //   throw new ApiError(409, "Product with name already exists");
-  // }
   let imageDetails = [];
   const images1 = req.files;
 
@@ -177,15 +241,28 @@ if ([name, description, price, categoryId, subcategoryId, stock].some(field => f
     imageDetails = cloudinaryUploads;
   }
 
-  const product= await Product.findByIdAndUpdate(id,{
+  const productData = {
     name,
     description,
     price,
     categoryId,
     subcategoryId,
-    stock,
-    ...(imageDetails.length > 0 && { images: imageDetails }),
-    },{new:true})
+    ...(imageDetails.length > 0 && { images: imageDetails })
+  };
+
+  if (stock !== undefined) {
+    productData.stock = stock;
+  }
+  if (isFeatured !== undefined) {
+    productData.isFeatured = isFeatured;
+  }
+
+  // const product= await Product.findByIdAndUpdate(id,productData,{new:true})
+  const product= await Product.findByIdAndUpdate(id,
+    {
+        $set: productData
+    },
+    {new: true})
     
     if(!product){
         throw new ApiError('500','internel server error')
@@ -201,6 +278,9 @@ export {
   createProduct,
   getAllProducts,
   getProductById,
+  getAllFeaturedProducts,
+  getAllProductsByCategoryId,
+  getAllProductsBySubCategoryId,
   deleteProduct,
   updateProduct,
 };

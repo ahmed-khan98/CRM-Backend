@@ -1,33 +1,44 @@
 import mongoose from "mongoose";
-import { Subcategory } from "../models/subcategory.js";
-import { Category } from "../models/category.js";
+import { Subcategory } from "../models/subcategory.model.js";
+import { Category } from "../models/category.model.js";
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
+
 
 const createSubCategory = asyncHandler(async (req,res)=>{
     const {name}=req.body
     const {categoryId}=req.params;
 
+    if(!categoryId){
+      throw new ApiError(400,'Category ID is required')
+    }
+
     const category = await Category.findById(categoryId);
     if (!category) {
-    //   return res.status(404).json({ error: 'Category ID  not found' });
       throw new ApiError(404,'Category ID not found')
     }
 
     if(!name){
-        throw new ApiError(400,'name field is required')
+        throw new ApiError(400,'sub category name field is required')  
     }
-    if(!categoryId){
-        throw new ApiError(400,'Category ID is required')
+   
+    const subcategoryImg = req.file
+
+    if (!subcategoryImg) {
+        throw new ApiError(400, "Sub Category Image is required")
     }
 
-    const existSubCategory= await Subcategory.findOne({name})
-    if (existSubCategory) {
-        throw new ApiError(409, "sub category name already exists")
+    const image = await uploadOnCloudinary(subcategoryImg,'oaxs-subCategory')
+
+    if (!image.url) {
+        throw new ApiError(400, "Sub Category image is not uploaded")
     }
+
     const subCategory= await Subcategory.create({
         name,
+        image:image?.url,
         categoryId
     })
     
@@ -46,7 +57,6 @@ const updateSubCategory = asyncHandler(async (req,res)=>{
 
    const category = await Category.findById(categoryId);
     if (!category) {
-    //   return res.status(404).json({ error: 'Category ID  not found' });
       throw new ApiError(404,'Category ID not found')
     }
 
@@ -55,17 +65,38 @@ const updateSubCategory = asyncHandler(async (req,res)=>{
     if (!existSubCategory) {
         throw new ApiError(409, "Sub category not found")
     }
-    const subCategory= await Subcategory.findByIdAndUpdate(id,{
+
+    let image = '';
+    const subCategoryImg = req.file
+    if(subCategoryImg){
+        const img = await uploadOnCloudinary(subCategoryImg,'oaxs-subCategory')
+    
+        if (!img.url) {
+            throw new ApiError(400, "Sub Category image is not uploaded")
+        }
+        image=img?.url
+        
+      }
+      
+      const subCategoryData = {
         name,
-        categoryId
-    },{new:true})
+        categoryId,
+        ...(image !== '' && { image })
+    };
+
+    const subCategory = await Subcategory.findOneAndUpdate(
+      { _id: id },
+      { $set: subCategoryData },
+      { new: true, }
+    );
+
     
     if(!subCategory){
         throw new ApiError('500','internel server error')
     }
 
     return res.status(200).json(
-        new ApiResponse(200, subCategory, "category updated Successfully")
+        new ApiResponse(200, subCategory, "Sub Category Updated Successfully")
     )
 })
 
@@ -84,19 +115,9 @@ const deleteSubCategory = asyncHandler(async (req,res)=>{
     }
 
     return res.status(200).json(
-        new ApiResponse(200, subCategory, "SubCategory deleted Successfully")
+        new ApiResponse(200, subCategory, "SubCategory Deleted Successfully")
     )
 })
-
-// const getAllSubCategories=(async(req,res)=>{
-//     const subCategories = await Subcategory.find();
-//     if(!subCategories){
-//         throw new ApiError('404','Category not found')   
-//     }
-//     return res.status(200).json(
-//         new ApiResponse(200, subCategories, "All Sub Category found")
-//     )
-// })
 
 const getAllSubCategories = async (req, res) => {
     try {
@@ -114,6 +135,7 @@ const getAllSubCategories = async (req, res) => {
             _id: 1,
             name: 1,
             categoryId: 1,
+            image: 1,
             category: { $arrayElemAt: ['$category.name', 0] }
           }
         }
@@ -148,11 +170,11 @@ const getAllSubCategoriesByCategoryId=(async(req,res)=>{
         {
             $project: {
                 name: 1,
+                image: 1,
                 _id: 1,
             }
         }
       ]);
-    // const subCategories = await Subcategory.find({categoryId});
     if(!subCategories){
         throw new ApiError('404','Sub Categories not found')   
     }

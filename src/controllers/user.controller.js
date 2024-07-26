@@ -35,33 +35,31 @@ const registerUser = asyncHandler( async (req, res) => {
     }
 
     const existedUser = await User.findOne({
-        $or: [{ username }, { email }]
+        $or: [{ email }]
     })
 
     if (existedUser) {
         throw new ApiError(409, "User with email or username already exists")
     }
-    //console.log(req.files);
 
-    // const avatarLocalPath = req.files?.avatar[0]?.path;
+    const avatarLocalPath = req.file;
 
-    // if (!avatarLocalPath) {
-    //     throw new ApiError(400, "Avatar file is required")
-    // }
+    if (!avatarLocalPath) {
+        throw new ApiError(400, "Avatar file is required")
+    }
 
-    // const avatar = await uploadOnCloudinary(avatarLocalPath)
+    const avatarImg = await uploadOnCloudinary(avatarLocalPath,'user-img')
 
-    // if (!avatar) {
-    //     throw new ApiError(400, "Avatar file is required")
-    // }
-   
+    if (!avatarImg) {
+        throw new ApiError(400, "Avatar file is required")
+    }
 
     const user = await User.create({
-        avatar: '',
-        email, 
+        username: username.toLowerCase(),
+        email:email.toLowerCase(), 
+        avatar:avatarImg.url,
         password,
-        role: role || 'USER',
-        username: username.toLowerCase()
+        role: role 
     })
 
     const createdUser = await User.findById(user._id).select(
@@ -84,7 +82,7 @@ const loginUser = asyncHandler(async (req, res) =>{
     const {email, password} = req.body
 
     if (!password && !email) {
-        throw new ApiError(400, "username or password is required")
+        throw new ApiError(400, "email or password is required")
     }
     
     const user = await User.findOne({
@@ -92,8 +90,7 @@ const loginUser = asyncHandler(async (req, res) =>{
     })
 
     if (!user) {
-        res.status(404).json('User does not exist')
-        // throw new ApiError(404, "User does not exist")
+        throw new ApiError(404, "User does not exist")
     }
 
    const isPasswordValid = await user.isPasswordCorrect(password)
@@ -128,6 +125,7 @@ const loginUser = asyncHandler(async (req, res) =>{
 })
 
 const logoutUser = asyncHandler(async(req, res) => {
+    console.log(req.user,'--------user')
     await User.findByIdAndUpdate(
         req.user._id,
         {
@@ -219,7 +217,6 @@ const changeCurrentPassword = asyncHandler(async(req, res) => {
     .status(200)
     .json(new ApiResponse(200, {}, "Password changed successfully"))
 })
-
 
 const getCurrentUser = asyncHandler(async(req, res) => {
     return res

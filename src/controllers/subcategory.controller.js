@@ -154,6 +154,7 @@ const getAllSubCategories = async (req, res) => {
       );
     }
   };
+  
 
 const getAllSubCategoriesByCategoryId=(async(req,res)=>{
 

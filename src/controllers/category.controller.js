@@ -115,6 +115,53 @@ const getAllCategories = asyncHandler(async(req,res)=>{
     )
 })
 
+const getAllCategoriesWithSubcategory = asyncHandler(async (req, res) => {
+    const categories = await Category.aggregate([
+      {
+        $lookup: {
+          from: 'subcategories', // Name of the subcategories collection
+          localField: '_id', // Field in Category collection
+          foreignField: 'categoryId', // Field in Subcategory collection that references Category
+          as: 'subcategories' // Name of the field to add to Category documents
+        }
+      },
+      {
+        $unwind: {
+          path: '$subcategories', // Unwind to get separate documents for each subcategory
+          preserveNullAndEmptyArrays: true // Keep categories without subcategories
+        }
+      },
+      {
+        $project: {
+          _id: 1, // Include category _id
+          name: 1, // Include category name
+          image:1,  
+          subcategories: {
+            _id: '$subcategories._id', // Include subcategory _id
+            name: '$subcategories.name' // Include subcategory name
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$_id', // Group by category _id
+          name: { $first: '$name' },
+          image: { $first: '$image' },
+          subcategories: { $push: '$subcategories' } // Aggregate subcategories into an array
+        }
+      }
+    ]);
+  
+    if (!categories) {
+      throw new ApiError(404, 'Category not found');
+    }
+  
+    return res.status(200).json(
+      new ApiResponse(200, categories, 'All Categories found')
+    );
+  });
+
+  
 const getCategoryById = asyncHandler(async(req,res)=>{
     const { id } = req.params;
       const category = await Category.findById(id);
@@ -134,5 +181,6 @@ export {
     getAllCategories,
     updateCategory,
     deleteCategory,
-    getCategoryById
+    getCategoryById,
+    getAllCategoriesWithSubcategory,
 }

@@ -71,15 +71,19 @@ const registerUser = asyncHandler( async (req, res) => {
     }
 
     return res.status(201).json(
-        new ApiResponse(200, createdUser, "User registered Successfully")
+        new ApiResponse(201,createdUser, "User registered Successfully")
     )
 
 } )
 
 const loginUser = asyncHandler(async (req, res) =>{
 
+//151.115.98.9
+//192.168.18.1 farhan
 
     const {email, password} = req.body
+    const userIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    console.log(userIp,'userIp')
 
     if (!password && !email) {
         throw new ApiError(400, "email or password is required")
@@ -94,7 +98,7 @@ const loginUser = asyncHandler(async (req, res) =>{
     }
 
    const isPasswordValid = await user.isPasswordCorrect(password)
-
+console.log(isPasswordValid,'isPasswordValid')
    if (!isPasswordValid) {
     throw new ApiError(401, "Invalid user credentials")
     }
@@ -118,7 +122,7 @@ const loginUser = asyncHandler(async (req, res) =>{
             {
                 user: loggedInUser, accessToken, refreshToken
             },
-            "User logged In Successfully"
+            "Admin logged In Successfully"
         )
     )
 

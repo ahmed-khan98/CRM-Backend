@@ -7,6 +7,18 @@ dotenv.config({
     path: './.env'
 })
 
+// UNHANDLED ERRORS KO CATCH KARNE KE LIYE
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('CRITICAL UNHANDLED REJECTION:', reason.message || reason);
+  // process.exit(1); // Isse hata dein taaki server na ruke
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('CRITICAL UNCAUGHT EXCEPTION:', err.message);
+  // process.exit(1);
+});
+
+
 app.get('/',(req,res)=>{
     res.send('server running — OK')
 })

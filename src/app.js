@@ -43,7 +43,7 @@ app.use("/api/v1/user", userRouter);
 app.use("/api/v1/user/department", adminVerify, departmentRouter);
 app.use("/api/v1/user/employee", adminVerify, employeeRouter);
 app.use("/api/v1/user/client", adminVerify, clientRouter);
-app.use("/api/v1/user/brand", adminVerify, brandRouter);
+app.use("/api/v1/user/brand", adminVerify, brandRouter);  
 app.use("/api/v1/user/sale", adminVerify, saleRouter);
 app.use("/api/v1/user/lead", adminVerify, leadRouter);
 app.use("/api/v1/user/emailTemplate", adminVerify, emailTemplateRouter);

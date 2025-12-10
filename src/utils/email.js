@@ -10,7 +10,7 @@ const sendEmail = async (fromemail, email, subject, body) => {
     auth: {
       // user: 'admission@lbuc.education',
       user: fromemail,
-      pass: "MKmk@1996",
+      pass: process.env.PASSWORD,
     },
     tls:{rejectUnauthorized:false}
   });

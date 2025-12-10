@@ -19,7 +19,6 @@ export const adminVerify = asyncHandler(async (req, _, next) => {
     const user = await Employee.findById(decodedToken?._id).select(
       "-password -refreshToken"
     );
-    console.log(user, "---------------->>>user");
     if (!user) {
       throw new ApiError(401, "Invalid Access Token");
     }

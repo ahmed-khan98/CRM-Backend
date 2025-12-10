@@ -26,10 +26,11 @@ const sentEmail = new Schema(
         compaignName: {
             type: String,
             lowecase: true,
+            trim: true,
         },
         from: {
             type: String,
-            lowecase: true,
+            lowercase: true,
             trim: true,
         },
         subject: {

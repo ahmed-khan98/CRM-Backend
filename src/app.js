@@ -9,7 +9,7 @@ const app = express();
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN,
-    credentials: true,
+    credentials: false,
   })
 );
 
@@ -27,10 +27,7 @@ import employeeRouter from "./routes/employee.routes.js";
 import departmentRouter from "./routes/department.routes.js";
 import clientRouter from "./routes/client.routes.js";
 import saleRouter from "./routes/sale.routes.js";
-import categoryRouter from "./routes/category.routes.js";
-import subcategoryRouter from "./routes/subcategory.routes.js";
-import productRouter from "./routes/product.routes.js";
-import blogRouter from "./routes/blog.routes.js";
+
 import brandRouter from "./routes/brand.routes.js";
 import emailTemplateRouter from "./routes/emailTemplate.routes.js";
 import brandEmailRouter from "./routes/brandEmail.routes.js";
@@ -41,33 +38,25 @@ import emailListRouter from "./routes/emailList.routes.js";
 import dashboardRouter from "./routes/dashboardCount.routes.js";
 import { adminVerify } from "./middlewares/adminVerify.js";
 
-//routes declaration
-//userRoute
-app.use("/api/v1/user", userRouter);
-app.use("/api/v1/user/category", categoryRouter);
-app.use("/api/v1/user/subcategory", subcategoryRouter);
-app.use("/api/v1/user/product", productRouter);
-app.use("/api/v1/user/blog", blogRouter);
-
 //adminRoute
-app.use("/api/v1/admin", userRouter);
-app.use("/api/v1/admin/department", adminVerify, departmentRouter);
-app.use("/api/v1/admin/employee", adminVerify, employeeRouter);
-app.use("/api/v1/admin/client", adminVerify, clientRouter);
-app.use("/api/v1/admin/sale", adminVerify, saleRouter);
-app.use("/api/v1/admin/brand", adminVerify, brandRouter);
-app.use("/api/v1/admin/lead", adminVerify, leadRouter);
-app.use("/api/v1/admin/emailTemplate", adminVerify, emailTemplateRouter);
-app.use("/api/v1/admin/brandEmail", adminVerify, brandEmailRouter);
-app.use("/api/v1/admin/sentEmail", adminVerify, sentEmailRouter);
-app.use("/api/v1/admin/emailList", adminVerify, emailListRouter);
-app.use("/api/v1/admin/paymentlink", adminVerify, paymentLinkRouter);
+app.use("/api/v1/user", userRouter);
+app.use("/api/v1/user/department", adminVerify, departmentRouter);
+app.use("/api/v1/user/employee", adminVerify, employeeRouter);
+app.use("/api/v1/user/client", adminVerify, clientRouter);
+app.use("/api/v1/user/brand", adminVerify, brandRouter);
+app.use("/api/v1/user/sale", adminVerify, saleRouter);
+app.use("/api/v1/user/lead", adminVerify, leadRouter);
+app.use("/api/v1/user/emailTemplate", adminVerify, emailTemplateRouter);
+app.use("/api/v1/user/brandEmail", adminVerify, brandEmailRouter);
+app.use("/api/v1/user/sentEmail", adminVerify, sentEmailRouter);
+app.use("/api/v1/user/emailList", adminVerify, emailListRouter);
+app.use("/api/v1/user/paymentlink", adminVerify, paymentLinkRouter);
 
-app.use("/api/v1/admin/category", adminVerify, categoryRouter);
-app.use("/api/v1/admin/subcategory", adminVerify, subcategoryRouter);
-app.use("/api/v1/admin/product", adminVerify, productRouter);
-app.use("/api/v1/admin/blog", adminVerify, blogRouter);
-app.use("/api/v1/admin", adminVerify, dashboardRouter);
+// app.use("/api/v1/user/category", adminVerify, categoryRouter);
+// app.use("/api/v1/user/subcategory", adminVerify, subcategoryRouter);
+// app.use("/api/v1/user/product", adminVerify, productRouter);
+// app.use("/api/v1/user/blog", adminVerify, blogRouter);
+// app.use("/api/v1/user", adminVerify, dashboardRouter);
 
 app.use(ErrorHandler);
 

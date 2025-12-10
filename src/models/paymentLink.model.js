@@ -30,12 +30,12 @@ const paymentLinkSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      lowecase: true,
+      lowercase: true,
       trim: true,
     },
-    phoneNo: { type: String, required: true },
+    phoneNo: { type: String, required: true,trim: true, },
 
-    description: { type: String, required: true },
+    description: { type: String, required: true,trim: true, },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],
@@ -51,7 +51,8 @@ const paymentLinkSchema = new mongoose.Schema(
       required: true,
     },
 
-    amount: { type: Number, required: true },
+    paypalOrderId: { type: String ,},
+    amount: { type: Number, required: true ,},
     currency: {
       type: String,
       enum: ["USD", "PKR"],

@@ -14,9 +14,10 @@ const createEmployee = asyncHandler(async (req, res) => {
     departmentId,
     joiningDate,
     address,
+    password,
   } = req.body;
   if (
-    [fullName, phoneNo, CNIC, designation, departmentId,joiningDate].some(
+    [fullName, phoneNo, CNIC, designation, departmentId, joiningDate].some(
       (field) => field === undefined || field === ""
     )
   ) {
@@ -48,17 +49,22 @@ const createEmployee = asyncHandler(async (req, res) => {
     designation,
     departmentId,
     address,
+    password,
     image: image?.url,
-    joiningDate
+    joiningDate,
   });
 
-  if (!employee) {
+  const createdUser = await Employee.findById(employee._id).select(
+    "-password -refreshToken"
+  );
+
+  if (!createdUser) {
     throw new ApiError("500", "internel server error");
   }
 
   return res
     .status(201)
-    .json(new ApiResponse(201, employee, "Employee Created Successfully"));
+    .json(new ApiResponse(201, createdUser, "Employee Created Successfully"));
 });
 
 const updateEmployee = asyncHandler(async (req, res) => {
@@ -141,8 +147,9 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 
 const getAllEmployees = asyncHandler(async (req, res) => {
   const employees = await Employee.find()
-  .sort({ createdAt: -1 }) 
-  .populate('departmentId','name');
+    .select("-password")
+    .sort({ createdAt: -1 })
+    .populate("departmentId", "name");
   if (!employees) {
     throw new ApiError("404", "Employee not found");
   }
@@ -153,7 +160,9 @@ const getAllEmployees = asyncHandler(async (req, res) => {
 
 const getEmployeeById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const employee = await Employee.findById(id).populate('departmentId','name');
+  const employee = await Employee.findById(id)
+    .select("-password")
+    .populate("departmentId", "name");
   if (!employee) {
     throw new ApiError(404, "Employee not found");
     // return res.status(404).json({ error: 'Employee not found' });
@@ -163,7 +172,9 @@ const getEmployeeById = asyncHandler(async (req, res) => {
 
 const getEmployeesByDepartId = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const employee = await Employee.find({departmentId:id}).populate('departmentId','name');
+  const employee = await Employee.find({ departmentId: id })
+    .select("-password")
+    .populate("departmentId", "name");
   if (!employee) {
     throw new ApiError(404, "Employee not found");
     // return res.status(404).json({ error: 'Employee not found' });
@@ -177,5 +188,5 @@ export {
   updateEmployee,
   deleteEmployee,
   getEmployeeById,
-  getEmployeesByDepartId
+  getEmployeesByDepartId,
 };

@@ -4,12 +4,13 @@ const emailList = new Schema({
   listName: {
     type: String,
     required: true,
+    trim: true,
   },
   emails: [
     {
       type: String,
       required: true,
-      lowecase: true,
+      lowercase: true,
       trim: true,
     },
   ],

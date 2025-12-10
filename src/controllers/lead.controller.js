@@ -114,7 +114,7 @@ const importLeadFromExcel = async (req, res) => {
     raw: false,
     blankrows: false,
   });
-  
+
   // 2) Preload lookups (name -> id)
   const [employees, brands] = await Promise.all([
     Employee.find({}, { _id: 1, fullName: 1 }),
@@ -149,27 +149,30 @@ const importLeadFromExcel = async (req, res) => {
     const r = rows[i];
 
     // Excel column names (exact headers)
-    const name = r["Customer Name"]|| r["Customer Name (Full)"];
+    const name = r["Customer Name"] || r["Customer Name (Full)"];
     const brandMark = r["Brand Mark"] || "";
     const serialNo = r["Serial Number"]?.toString() || "";
     const phoneNo = r["Phone Number"] || r["Phone (UI)"];
     const email = r["Email"] || r["Email (UI)"];
     const paidStatus = mapPaid(r["Paid Status"]);
     const lastAction = mapLastAction(r["Last Action"]);
-    const agentName = r["Agent"];
+    // const agentName = r["Agent"];
     const lastComment = r["Last Comment"];
-    const brandName = r["Brand Name"] || r["Brand"] || r["Brands"]; 
+    const brandName = r["Brand Name"] || r["Brand"] || r["Brands"];
 
     // Lookups (robust)
-    const agentId = findAgentId(agentName, employees, empStrict, empLoose);
+    // const agentId = findAgentId(agentName, employees, empStrict, empLoose);
     const brandInfo = findBrandInfo(brandName, brands, brandStrict, brandLoose);
 
     // optional deep debug on misses
-    if (!agentId || !brandInfo) {
+    if (
+      // !agentId ||
+      !brandInfo
+    ) {
       console.warn(`[row ${i + 2}] lookup miss`, {
-        agentName,
-        agentStrictHit: empStrict.has(norm(agentName)),
-        agentLooseHit: empLoose.has(loose(agentName)),
+        // agentName,
+        // agentStrictHit: empStrict.has(norm(agentName)),
+        // agentLooseHit: empLoose.has(loose(agentName)),
         brandName,
         brandStrictHit: brandStrict.has(norm(brandName)),
         brandLooseHit: brandLoose.has(loose(brandName)),
@@ -181,7 +184,7 @@ const importLeadFromExcel = async (req, res) => {
     // if (!brandMark) missing.push("Brand Mark");
     // if (!serialNo) missing.push("Serial Number");
     if (!phoneNo) missing.push("Phone Number");
-    if (!agentId) missing.push(`Agent not found: "${agentName}"`);
+    // if (!agentId) missing.push(`Agent not found:  "${agentName}"`);
     if (!brandInfo) missing.push(`Brand not found: "${brandName}"`);
 
     if (missing.length) {
@@ -197,7 +200,7 @@ const importLeadFromExcel = async (req, res) => {
       email: email ? norm(email) : undefined,
       paidStatus,
       lastAction,
-      agent: agentId, // Employee _id
+      // agent: agentId,
       brandId: brandInfo.brandId, // Brand _id
       departmentId: brandInfo.departmentId, // from Brand
       lastComment: lastComment || "",
@@ -226,11 +229,17 @@ const importLeadFromExcel = async (req, res) => {
 
   // 4) Execute bulk
   let result = { upsertedCount: 0, matchedCount: 0 };
-  console.log("bulkOps length:", bulkOps.length);
+  console.log(
+    "bulkOps length:",
+    bulkOps[0].filter,
+    bulkOps[0].update,
+    bulkOps.length
+  );
   if (!bulkOps.length) {
     console.warn("All rows skipped. Reasons (first 5):", skipped.slice(0, 5));
   } else {
     const r = await Lead.bulkWrite(bulkOps, { ordered: false });
+    console.log(r, "===------------->>>>>r");
     result = {
       upsertedCount: r.upsertedCount ?? 0,
       matchedCount: r.nMatched ?? 0,
@@ -269,6 +278,7 @@ const updateActionLead = asyncHandler(async (req, res) => {
     scheduleDate,
     lastComment,
   };
+
 
   const lead = await Lead.findByIdAndUpdate(
     leadId,
@@ -320,7 +330,7 @@ const deleteLead = asyncHandler(async (req, res) => {
 
 const getAllLeads = asyncHandler(async (req, res) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 1, 1), 200);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
   console.log(page, limit, skip, "page,limit,skip");
 
@@ -339,7 +349,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
   const leadsWithLastComment = await Promise.all(
     items.map(async (lead) => {
       const lastComment = await LeadComment.findOne({ leadId: lead._id })
-        .select("lastComment lastAction createdAt")
+        .select("lastComment lastAction createdAt scheduleDate")
         .sort({ createdAt: -1 })
         .populate("userId", "username")
         .lean();
@@ -347,6 +357,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
         ...lead,
         lastComment: lastComment ? lastComment.lastComment : null,
         lastAction: lastComment ? lastComment.lastAction : null,
+        scheduleDate: lastComment ? lastComment.scheduleDate : null,
         lastActionCreateAt: lastComment ? lastComment.createdAt : null,
         userId: lastComment ? lastComment.userId?.username : null,
       };
@@ -380,7 +391,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
 const getAllLeadsByBrandId = asyncHandler(async (req, res) => {
   const { brandId } = req?.params;
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 1, 1), 200);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
 
   const [items, total] = await Promise.all([
@@ -441,6 +452,7 @@ const getLeadById = asyncHandler(async (req, res) => {
     .populate("departmentId", "name")
     .populate("brandId", "name")
     .lean();
+    console.log(lead,'--------->>>>lead')
 
   const leadComment = await LeadComment.find({ leadId: id })
     .sort({ createdAt: -1 })

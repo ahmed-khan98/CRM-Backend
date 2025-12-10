@@ -164,6 +164,10 @@ const importEmailList = asyncHandler(async (req, res) => {
   if (!listName) {
     throw new ApiError(400, "List name is required");
   }
+  const existedlistName = await EmailList.findOne({ listName });
+    if (!existedlistName) {
+    throw new ApiError(409, "List name already exists");
+  }
 
   let buffer;
 

@@ -15,7 +15,7 @@ import { userVerify } from "../middlewares/userVerify.js";
 
 const router = Router()
 
-router.route("/adminLogin").post(loginUser)
+// router.route("/adminLogin").post(loginUser)
 
 router.route("/register").post(upload.single("avatar"),registerUser)
 

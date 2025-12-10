@@ -12,24 +12,27 @@ const saleSchema = new Schema(
     email: {
       type: String,
       required: true,
-      lowecase: true,
+      lowercase: true,
       trim: true,
     },
     phoneNo: { type: String, required: true },
+    brandMark: { type: String, trim: true, },
+    brandName: { type: String, trim: true, },
+    serialNo: { type: String,trim: true, },
 
-    description: String,
+    description: {type:String,trim: true,},
 
     leadId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Lead",
     },
-    clientId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Client",
-    },
+    // clientId: {
+    //   type: mongoose.Schema.Types.ObjectId,
+    //   ref: "Client",
+    // },
 
     agent: { type: Schema.Types.ObjectId, ref: "Employee", required: true },
-    frontier: { type: Schema.Types.ObjectId, ref: "Employee" },
+    fronter: { type: Schema.Types.ObjectId, ref: "Employee" },
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",
@@ -45,7 +48,7 @@ const saleSchema = new Schema(
     type: {
       type: String,
       enum: ["FRESH", "UP SELL"],
-      default: "FRESH",
+      default: "FRESH", 
     },
     amount: {
       type: Number,
@@ -54,8 +57,8 @@ const saleSchema = new Schema(
     createdAt: { type: Date, default: Date.now },
     status: {
       type: String,
-      enum: ["draft", "pending", "paid", "partial", "failed", "refunded"],
-      default: "pending",
+      enum: ["paid", "charge back", "refund"],
+      default: "paid",
     },
   },
   {

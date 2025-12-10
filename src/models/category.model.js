@@ -3,7 +3,7 @@ import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 
 const categorySchema = new Schema(
   {
-    name: { type: String, required: true, lowercase: true,unique:true },
+    name: { type: String, required: true, lowercase: true,unique:true,trim: true, },
     image: {
       type: String,
       required: true,

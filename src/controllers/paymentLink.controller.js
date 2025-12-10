@@ -91,7 +91,7 @@ const updatePaymentLink = asyncHandler(async (req, res) => {
   ) {
     throw new ApiError(
       409,
-      `Cannot update after payment is ${existPaymentlink.status}`
+      `Cannot update after payment status is ${existPaymentlink.status}`
     );
   }
 
@@ -220,13 +220,15 @@ const getPaymentLinksByBrandId = asyncHandler(async (req, res) => {
 });
 
 const getPaymentLinkById = asyncHandler(async (req, res) => {
-  const { leadId } = req.params;
+  const { id } = req.params;
 
-  const link = await PaymentLink.find({ leadId })
+  const link = await PaymentLink.findById(id)
     .populate("leadId", "name")
-    .populate("brandId", "name")
+    .populate("brandId", "name image")
     .populate("clientId", "name email phoneNo")
     .lean();
+
+    console.log(link,'link')
 
   if (!link) {
     throw new ApiError(404, "payment link not found");
@@ -234,7 +236,7 @@ const getPaymentLinkById = asyncHandler(async (req, res) => {
   }
   return res
     .status(200)
-    .json(new ApiResponse(200, link, "lead all payment link found"));
+    .json(new ApiResponse(200, link, "Payment link found"));
 });
 
 export {

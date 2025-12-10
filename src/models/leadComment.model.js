@@ -28,7 +28,7 @@ const leadComment = new Schema({
   scheduleDate: { type: Date },
   loopFromDate: { type: Date },
   loopToDate: { type: Date },
-  lastComment: { type: String,required: true, },
+  lastComment: { type: String,required: true,trim: true, },
 
   createdAt: {
     type: Date,

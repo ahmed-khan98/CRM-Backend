@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {ApiError} from "../utils/ApiError.js"
+import { Employee} from "../models/employee.model.js"
 import { User} from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -9,7 +10,7 @@ import mongoose from "mongoose";
 
 const generateAccessAndRefereshTokens = async(userId) =>{
     try {
-        const user = await User.findById(userId)
+        const user = await Employee.findById(userId)
         const accessToken = user.generateAccessToken()
         const refreshToken = user.generateRefreshToken()
 
@@ -26,20 +27,20 @@ const generateAccessAndRefereshTokens = async(userId) =>{
 
 const registerUser = asyncHandler( async (req, res) => {
 
-    const { email, username, password,role } = req.body
+    const { email, fullName, password,role } = req.body
 
     if (
-        [ email, username, password].some((field) => field?.trim() === "")
+        [ email, fullName, password].some((field) => field?.trim() === "")
     ) {
         throw new ApiError(400, "All fields are required")
     }
 
-    const existedUser = await User.findOne({
+    const existedUser = await Employee.findOne({
         $or: [{ email }]
     })
 
     if (existedUser) {
-        throw new ApiError(409, "User with email or username already exists")
+        throw new ApiError(409, "User with email or fullName already exists")
     }
 
     const avatarLocalPath = req.file;
@@ -54,10 +55,10 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new ApiError(400, "Avatar file is required")
     }
 
-    const user = await User.create({
-        username: username.toLowerCase(),
+    const user = await Employee.create({
+        fullName: fullName.toLowerCase(),
         email:email.toLowerCase(), 
-        avatar:avatarImg.url,
+        image:avatarImg.url,
         password,
         role: role 
     })
@@ -80,6 +81,7 @@ const loginUser = asyncHandler(async (req, res) =>{
 
 //151.115.98.9
 //192.168.18.1 farhan
+// 151.115.98.9/32 mongodb ip access for ppi
 
     const {email, password} = req.body
     const userIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
@@ -89,7 +91,7 @@ const loginUser = asyncHandler(async (req, res) =>{
         throw new ApiError(400, "email or password is required")
     }
     
-    const user = await User.findOne({
+    const user = await Employee.findOne({
         $or: [{email}]
     })
 
@@ -98,14 +100,15 @@ const loginUser = asyncHandler(async (req, res) =>{
     }
 
    const isPasswordValid = await user.isPasswordCorrect(password)
-console.log(isPasswordValid,'isPasswordValid')
+   console.log(isPasswordValid,'isPasswordValid')
+   
    if (!isPasswordValid) {
     throw new ApiError(401, "Invalid user credentials")
-    }
+   }
 
    const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
 
-    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+    const loggedInUser = await Employee.findById(user._id).select("-password -refreshToken")
 
     const options = {
         httpOnly: true,
@@ -122,7 +125,7 @@ console.log(isPasswordValid,'isPasswordValid')
             {
                 user: loggedInUser, accessToken, refreshToken
             },
-            "Admin logged In Successfully"
+            "User logged In Successfully"
         )
     )
 
@@ -130,7 +133,7 @@ console.log(isPasswordValid,'isPasswordValid')
 
 const logoutUser = asyncHandler(async(req, res) => {
     console.log(req.user,'--------user')
-    await User.findByIdAndUpdate(
+    await Employee.findByIdAndUpdate(
         req.user._id,
         {
             $unset: {
@@ -167,7 +170,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
             process.env.REFRESH_TOKEN_SECRET
         )
     
-        const user = await User.findById(decodedToken?._id)
+        const user = await Employee.findById(decodedToken?._id)
     
         if (!user) {
             throw new ApiError(401, "Invalid refresh token")
@@ -205,9 +208,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 const changeCurrentPassword = asyncHandler(async(req, res) => {
     const {oldPassword, newPassword} = req.body
 
-    
-
-    const user = await User.findById(req.user?._id)
+    const user = await Employee.findById(req.user?._id)
     const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
 
     if (!isPasswordCorrect) {
@@ -239,7 +240,7 @@ const updateAccountDetails = asyncHandler(async(req, res) => {
         throw new ApiError(400, "All fields are required")
     }
 
-    const user = await User.findByIdAndUpdate(
+    const user = await Employee.findByIdAndUpdate(
         req.user?._id,
         {
             $set: {
@@ -272,11 +273,11 @@ const updateUserAvatar = asyncHandler(async(req, res) => {
         
     }
 
-    const user = await User.findByIdAndUpdate(
+    const user = await Employee.findByIdAndUpdate(
         req.user?._id,
         {
             $set:{
-                avatar: avatar.url
+                image: avatar.url
             }
         },
         {new: true}
@@ -306,7 +307,7 @@ const updateUserCoverImage = asyncHandler(async(req, res) => {
         
     }
 
-    const user = await User.findByIdAndUpdate(
+    const user = await Employee.findByIdAndUpdate(
         req.user?._id,
         {
             $set:{
@@ -325,16 +326,16 @@ const updateUserCoverImage = asyncHandler(async(req, res) => {
 
 
 const getUserChannelProfile = asyncHandler(async(req, res) => {
-    const {username} = req.params
+    const {fullName} = req.params
 
-    if (!username?.trim()) {
-        throw new ApiError(400, "username is missing")
+    if (!fullName?.trim()) {
+        throw new ApiError(400, "fullName is missing")
     }
 
-    const channel = await User.aggregate([
+    const channel = await Employee.aggregate([
         {
             $match: {
-                username: username?.toLowerCase()
+                fullName: fullName?.toLowerCase()
             }
         },
         {
@@ -372,7 +373,7 @@ const getUserChannelProfile = asyncHandler(async(req, res) => {
         },
         {
             $project: {
-                username: 1,
+                fullName: 1,
                 subscribersCount: 1,
                 channelsSubscribedToCount: 1,
                 isSubscribed: 1,
@@ -396,7 +397,7 @@ const getUserChannelProfile = asyncHandler(async(req, res) => {
 })
 
 const getWatchHistory = asyncHandler(async(req, res) => {
-    const user = await User.aggregate([
+    const user = await Employee.aggregate([
         {
             $match: {
                 _id: new mongoose.Types.ObjectId(req.user._id)
@@ -418,7 +419,7 @@ const getWatchHistory = asyncHandler(async(req, res) => {
                             pipeline: [
                                 {
                                     $project: {
-                                        username: 1,
+                                        fullName: 1,
                                         avatar: 1
                                     }
                                 }

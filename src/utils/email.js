@@ -1,11 +1,15 @@
 import nodemailer from "nodemailer";
 
 const sendEmail = async (fromemail, email, subject, body) => {
+  const domain = fromemail.split("@")[1]; 
+  console.log(domain,'domain')
   const transporter = nodemailer.createTransport({
-    host: 'mail.lbuc.education', 
-    port: 465, // or 465 for SSL
+    // host: 'mail.lbuc.education',
+    host: `mail.${domain}`, 
+    port: 465, 
     auth: {
-      user: 'admission@lbuc.education',
+      // user: 'admission@lbuc.education',
+      user: fromemail,
       pass: "MKmk@1996",
     },
     tls:{rejectUnauthorized:false}

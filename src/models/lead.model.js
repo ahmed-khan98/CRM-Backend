@@ -24,14 +24,15 @@ const leadSchema = new Schema(
     email: {
       type: String,
       //   required: true,
-      unique: true,
-      lowecase: true,
+      // unique: true,
+      lowercase: true,
       trim: true,
     },
 
     phoneNo: { type: String, required: true },
-    brandMark: { type: String, required: true },
-    serialNo: { type: String, required: true },
+    brandName: { type: String,trim: true,  },
+    brandMark: { type: String, required: true,trim: true, },
+    serialNo: { type: String, required: true,trim: true, },
     lastAction: {
       type: String,
       enum: [

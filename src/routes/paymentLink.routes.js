@@ -11,7 +11,7 @@ import {
 
 const router = Router();
 
-router.use(adminVerify);
+// router.use(adminVerify);
 
 router.route("/").get(getAllPaymentLinks);
 router.route("/add").post(createPaymentLink);

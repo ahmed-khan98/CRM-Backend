@@ -5,7 +5,7 @@ import { deleteEmailList, getAllEmailLists, importEmailList } from "../controlle
 
 const router=Router();      
 
-router.use(adminVerify)
+// router.use(adminVerify)
 
 router.route('/').get(getAllEmailLists)
 router.post("/importEmailList", upload.single("file"), importEmailList);

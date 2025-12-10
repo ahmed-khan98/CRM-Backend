@@ -5,7 +5,7 @@ import { upload } from "../middlewares/multer.middleware.js";
 
 const router=Router();
 
-router.use(adminVerify)
+// router.use(adminVerify)
 
 router.route('/').get(getAllClients)
 router.route('/add').post(upload.single("image"),createClient)

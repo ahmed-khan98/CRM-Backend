@@ -12,7 +12,7 @@ const sentEmail = new Schema(
         },
         senderId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
+            ref: "Employee",
         },
         brandId: {
             type: mongoose.Schema.Types.ObjectId,

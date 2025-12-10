@@ -54,6 +54,8 @@ const sentSingleEmail = asyncHandler(async (req, res) => {
     throw new ApiError(500, `Failed to send email: ${error.message}`);
   }
 
+  console.log(req?.user?._id,'===>>>>>>>req?.user?._id')
+
   const sentEmailRecord = await SentEmail.create({
     recipients: [email],
     leadId,
@@ -88,7 +90,7 @@ const getSendEmailByLeadId = asyncHandler(async (req, res) => {
       .skip(skip)
       .limit(limit)
       .populate("brandId", "name")
-      .populate("senderId", "username"),
+      .populate("senderId", "fullName"),
     SentEmail.countDocuments({ leadId: id }),
   ]);
 
@@ -125,7 +127,7 @@ const getAllBulkEmails = asyncHandler(async (req, res) => {
       .skip(skip)
       .limit(limit)
       .populate("listId", "listName")
-      .populate("senderId", "username")
+      .populate("senderId", "fullName")
       .populate("brandId", "name"),
     SentEmail.countDocuments({ type: "BULK" }),
   ]);
@@ -317,6 +319,7 @@ const sendBulkEmails = asyncHandler(async (req, res) => {
         body: updatedBody,
         status: allSent ? "sent" : "failed",
         type: "BULK",
+        senderId: req?.user?._id,
         listId,
         brandId,
     });

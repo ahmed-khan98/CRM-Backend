@@ -4,7 +4,7 @@ import { sentSingleEmail, getSendEmailByLeadId, sendBulkEmails, getAllBulkEmails
 
 const router=Router();      
 
-router.use(adminVerify)
+// router.use(adminVerify)
 
 router.route('/bulk').get(getAllBulkEmails)
 router.route('/add').post(sentSingleEmail)

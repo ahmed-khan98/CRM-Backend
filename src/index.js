@@ -18,7 +18,7 @@ connectDB()
     app.listen(PORT, () => {
       console.log(
         "MongoDB connected !! DB HOST:",
-        process.env.MONGO_HOST || "unknown"
+        process.env.MONGODB_URI || "unknown"
       );
       console.log(`⚙️ Server is running at port : ${PORT}`);
     });

@@ -8,16 +8,16 @@ import xlsx from "xlsx";
 import formData from "form-data";
 import Mailgun from "mailgun.js";
 
-const DOMAIN = process.env.MAILGUN_DOMAIN; 
-const API_KEY = process.env.MAILGUN_API_KEY;
+// const DOMAIN = process.env.MAILGUN_DOMAIN; 
+// const API_KEY = process.env.MAILGUN_API_KEY;
 
 // Ensure both are set
-if (!DOMAIN || !API_KEY) {
-    console.error("Mailgun environment variables are not set!");
-}
+// if (!DOMAIN || !API_KEY) {
+//     console.error("Mailgun environment variables are not set!");
+// }
 
-const mailgun = new Mailgun(formData);
-const mg = mailgun.client({ username: "api", key: API_KEY });
+// const mailgun = new Mailgun(formData);
+// const mg = mailgun.client({ username: "api", key: API_KEY });
 
 
 // const importEmailList = asyncHandler(async (req, res) => {

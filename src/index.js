@@ -19,10 +19,6 @@ process.on('uncaughtException', (err) => {
 });
 
 
-app.get('/',(req,res)=>{
-    res.send('server running — OK')
-})
-
 connectDB()
 .then(() => {
     app.listen(process.env.PORT , () => {
@@ -33,7 +29,10 @@ connectDB()
     console.log("MONGO db connection failed !!! ", err);
 })
 
-
+app.get('/',(req,res)=>{
+    console.log('--- RAILWAY HEALTH CHECK HIT SUCCESSFULLY ---');
+    res.send('server running — OK')
+})
 
 
 

@@ -5,10 +5,9 @@ const sendEmail = async (fromemail, email, subject, body) => {
   console.log(domain,'domain')
   const transporter = nodemailer.createTransport({
     // host: 'mail.lbuc.education',
-    host: '68.181.111.28',
-    // `mail.${domain}`,  68.181.111.28
+    host: `mail.${domain}`,  
+    // 68.181.111.28
     port: 465, 
-    secure: true,
     auth: {
       // user: 'admission@lbuc.education',
       user: fromemail,

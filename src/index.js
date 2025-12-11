@@ -6,6 +6,7 @@ import { app } from "./app.js";
 dotenv.config({
   path: "./.env",
 });
+const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
 app.get("/", (req, res) => {
   console.log("--- RAILWAY HEALTH CHECK HIT SUCCESSFULLY ---");
@@ -14,8 +15,12 @@ app.get("/", (req, res) => {
 
 connectDB()
   .then(() => {
-    app.listen(process.env.PORT, () => {
-      console.log(`⚙️ Server is running at port : ${process.env.PORT}`);
+    app.listen(PORT, () => {
+      console.log(
+        "MongoDB connected !! DB HOST:",
+        process.env.MONGO_HOST || "unknown"
+      );
+      console.log(`⚙️ Server is running at port : ${PORT}`);
     });
   })
   .catch((err) => {

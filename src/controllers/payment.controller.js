@@ -106,6 +106,7 @@ router.post("/public/:linkId/create-order", async (req, res) => {
   const { linkId } = req.params;
 
   try {
+    
     const linkDetails = await PaymentLink.findById(linkId);
 
     if (!linkDetails || linkDetails.paymentStatus !== "pending") {

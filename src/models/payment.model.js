@@ -13,7 +13,7 @@ const paymentSchema = new mongoose.Schema({
     enum: ["Pending", "Completed", "Failed"],
     default: "Pending",
   },
-  method: { type: String, enum: ["stripe", "paypal"] },
+  method: { type: String, enum: ["stripe", "Kinatech Business Solutions LLC", "Pay Kinetic","SA Pro Solution LLC"] },
   createdAt: { type: Date, default: Date.now },
 });
 

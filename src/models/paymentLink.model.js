@@ -35,7 +35,7 @@ const paymentLinkSchema = new mongoose.Schema(
     },
     phoneNo: { type: String, required: true,trim: true, },
 
-    description: { type: String, required: true,trim: true, },
+    description: { type: String,trim: true, },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],
@@ -43,7 +43,7 @@ const paymentLinkSchema = new mongoose.Schema(
     },
     merchantType: {
       type: String,
-      enum: ["stripe", "paypal1", "paypal penta prime"],
+      enum: ["stripe", "Kinatech Business Solutions LLC", "Pay Kinetic","SA Pro Solution LLC"],
       required: true,
     },
     service: {

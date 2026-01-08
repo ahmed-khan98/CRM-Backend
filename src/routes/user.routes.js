@@ -13,7 +13,7 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { userVerify } from "../middlewares/userVerify.js";
 
 
-const router = Router()
+const   router = Router()
 
 // router.route("/adminLogin").post(loginUser)
 

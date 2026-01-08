@@ -349,9 +349,9 @@ const getAllLeads = asyncHandler(async (req, res) => {
   const leadsWithLastComment = await Promise.all(
     items.map(async (lead) => {
       const lastComment = await LeadComment.findOne({ leadId: lead._id })
-        .select("lastComment lastAction createdAt scheduleDate")
+        .select("lastComment lastAction createdAt scheduleDate userId")
         .sort({ createdAt: -1 })
-        .populate("userId", "username")
+        .populate("userId", "fullName")
         .lean();
       return {
         ...lead,
@@ -359,7 +359,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
         lastAction: lastComment ? lastComment.lastAction : null,
         scheduleDate: lastComment ? lastComment.scheduleDate : null,
         lastActionCreateAt: lastComment ? lastComment.createdAt : null,
-        userId: lastComment ? lastComment.userId?.username : null,
+        userId: lastComment ? lastComment.userId?.fullName : null,
       };
     })
   );
@@ -456,7 +456,7 @@ const getLeadById = asyncHandler(async (req, res) => {
 
   const leadComment = await LeadComment.find({ leadId: id })
     .sort({ createdAt: -1 })
-    .populate("userId", "username")
+    .populate("userId", "fullName")
     .lean();
 
   if (!lead) {

@@ -49,7 +49,7 @@ router.post("/admin/create", verifyAdmin, async (req, res) => {
     });
 
     // Yeh URL admin copy karke user ko dega
-    const paymentLinkUrl = `${FRONTEND_BASE_URL}/payment/${newPaymentLink._id}`;
+    const paymentLinkUrl = `${FRONTEND_BASE_URL}/pay/${newPaymentLink._id}`;
 
     return res.status(201).json({
       success: true,
@@ -80,16 +80,17 @@ router.get("/public/:linkId", async (req, res) => {
     }
 
     const client_id =
-      linkDetails.merchantType === "paypal1"
+      linkDetails.merchantType === "Kinatech Business Solutions LLC"
         ? process.env.PAYPAL1_CLIENT_ID
-        : process.env.PAYPAL2_CLIENT_ID;
+        : linkDetails.merchantType === "Pay Kinetic"
+          ? process.env.PAYPAL2_CLIENT_ID
+          : process.env.PAYPAL3_CLIENT_ID;
 
     return res.status(200).json({
       success: true,
       data: linkDetails,
-      paypalClientId: client_id, 
+      paypalClientId: client_id,
     });
-
   } catch (error) {
     console.error("Error fetching payment link details:", error);
     return res.status(500).json({ message: "Internal server error." });
@@ -125,8 +126,8 @@ router.post("/public/:linkId/create-order", async (req, res) => {
           description: `Service: ${service} for ${name}`,
           custom_id: `PAYMENTLINK_${_id.toString()}`, // Database lookup ke liye
           // payee: {
-            // Agar aapko specific PayPal email address par payment chahiye (optional)
-            // email_address: merchantType === 'paypal1' ? 'paypal1-email@example.com' : 'paypal2-email@example.com'
+          // Agar aapko specific PayPal email address par payment chahiye (optional)
+          // email_address: merchantType === 'paypal1' ? 'paypal1-email@example.com' : 'paypal2-email@example.com'
           // },
         },
       ],
@@ -161,11 +162,9 @@ router.post("/public/:linkId/create-order", async (req, res) => {
     });
   } catch (error) {
     console.error("API Error in Create Order:", error.message);
-    return res
-      .status(500)
-      .json({
-        message: error.message || "Internal server error during order creation",
-      });
+    return res.status(500).json({
+      message: error.message || "Internal server error during order creation",
+    });
   }
 });
 
@@ -228,12 +227,9 @@ router.post("/public/:linkId/charge", async (req, res) => {
     });
   } catch (error) {
     console.error("API Error in Capture Payment:", error.message);
-    return res
-      .status(500)
-      .json({
-        message:
-          error.message || "Internal server error during payment capture",
-      });
+    return res.status(500).json({
+      message: error.message || "Internal server error during payment capture",
+    });
   }
 });
 

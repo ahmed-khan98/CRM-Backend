@@ -7,19 +7,23 @@ import {
   getPaymentLinksByBrandId,
   getPaymentLinkById,
   updatePaymentLink,
+  createPaypalOrderLinkById,
+  paymentChargerByOrderId,
 } from "../controllers/paymentLink.controller.js";
 
 const router = Router();
 
 // router.use(adminVerify);
 
-router.route("/").get(getAllPaymentLinks);
-router.route("/add").post(createPaymentLink);
+router.route("/").get(adminVerify,getAllPaymentLinks);
+router.route("/add").post(adminVerify,createPaymentLink);
+router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
+router.route("/pay-with-paypal/:orderId/charge").post(paymentChargerByOrderId);
 router
   .route("/:id")
-  .delete(deletePaymentLink)
+  .delete(adminVerify,deletePaymentLink)
   .get(getPaymentLinkById)
-  .patch(updatePaymentLink);
+  .patch(adminVerify,updatePaymentLink);
 router.route("/:brandId/brandPaymentLink").get(getPaymentLinksByBrandId);
 router.route("/:leadId/leadPaymentLink").get(getPaymentLinkById);
 

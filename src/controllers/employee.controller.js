@@ -146,10 +146,12 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find()
+  const employees = await Employee.find({role:'USER'})
     .select("-password")
     .sort({ createdAt: -1 })
     .populate("departmentId", "name");
+   
+
   if (!employees) {
     throw new ApiError("404", "Employee not found");
   }

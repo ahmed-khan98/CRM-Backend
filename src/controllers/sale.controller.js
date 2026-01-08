@@ -21,7 +21,7 @@ const createSale = asyncHandler(async (req, res) => {
   } = req.body;
 
   if (
-    [name, email, phoneNo, brandName, amount, departmentId, agent].some(
+    [name, email, phoneNo, amount, departmentId, agent,type].some(
       (field) => field === undefined || field === ""
     )
   ) {

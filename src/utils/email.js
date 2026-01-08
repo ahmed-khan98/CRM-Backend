@@ -7,6 +7,7 @@ const sendEmail = async (fromemail, email, subject, body) => {
     // host: 'mail.lbuc.education',
     host: `mail.${domain}`, 
     port: 465, 
+    secure:true,
     auth: {
       // user: 'admission@lbuc.education',
       user: fromemail,

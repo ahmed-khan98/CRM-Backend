@@ -50,7 +50,7 @@ app.use("/api/v1/user/emailTemplate", adminVerify, emailTemplateRouter);
 app.use("/api/v1/user/brandEmail", adminVerify, brandEmailRouter);
 app.use("/api/v1/user/sentEmail", adminVerify, sentEmailRouter);
 app.use("/api/v1/user/emailList", adminVerify, emailListRouter);
-app.use("/api/v1/user/paymentlink", adminVerify, paymentLinkRouter);
+app.use("/api/v1/user/paymentlink",paymentLinkRouter);
 
 // app.use("/api/v1/user/category", adminVerify, categoryRouter);
 // app.use("/api/v1/user/subcategory", adminVerify, subcategoryRouter);

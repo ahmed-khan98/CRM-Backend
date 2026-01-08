@@ -8,7 +8,7 @@ import xlsx from "xlsx";
 import formData from "form-data";
 import Mailgun from "mailgun.js";
 
-// const DOMAIN = process.env.MAILGUN_DOMAIN; 
+// const DOMAIN = process.env.MAILGUN_DOMAIN;
 // const API_KEY = process.env.MAILGUN_API_KEY;
 
 // Ensure both are set
@@ -18,7 +18,6 @@ import Mailgun from "mailgun.js";
 
 // const mailgun = new Mailgun(formData);
 // const mg = mailgun.client({ username: "api", key: API_KEY });
-
 
 // const importEmailList = asyncHandler(async (req, res) => {
 //   if (!req.file) {
@@ -80,7 +79,6 @@ import Mailgun from "mailgun.js";
 //   if (uniqueEmails.length === 0) {
 //     throw new ApiError(400, "No valid emails found in the file");
 //   }
-  
 
 // let validatedEmails = [];
 // const MAX_BATCH_SIZE = 50;
@@ -88,7 +86,7 @@ import Mailgun from "mailgun.js";
 // for (let i = 0; i < uniqueEmails.length; i += MAX_BATCH_SIZE) {
 //   const batch = uniqueEmails.slice(i, i + MAX_BATCH_SIZE);
 
-//   const validationPromises = batch.map(email => 
+//   const validationPromises = batch.map(email =>
 //     mg.validate.get(email)
 //       .then(result => {
 //           return result;
@@ -103,12 +101,12 @@ import Mailgun from "mailgun.js";
 //   console.log(validationResults,'validationResults')
 
 //   const validEmailsInBatch = validationResults
-//     .filter(item => 
-//         item && 
-//         item.is_valid && 
-//         (item.risk === 'low' || item.risk === 'medium') 
+//     .filter(item =>
+//         item &&
+//         item.is_valid &&
+//         (item.risk === 'low' || item.risk === 'medium')
 //     )
-//     .map(item => item.address); 
+//     .map(item => item.address);
 
 //   validatedEmails.push(...validEmailsInBatch);
 // }
@@ -117,9 +115,9 @@ import Mailgun from "mailgun.js";
 //     throw new ApiError(400, "No deliverable emails found after validation.");
 //   }
 
-//   const newList = await EmailList.create({ 
-//     listName, 
-//     emails: validatedEmails 
+//   const newList = await EmailList.create({
+//     listName,
+//     emails: validatedEmails
 //   });
 
 //   if (filePath) await fsp.unlink(filePath);
@@ -134,7 +132,6 @@ import Mailgun from "mailgun.js";
 //       )
 //     );
 // });
-
 
 const getAllEmailLists = asyncHandler(async (req, res) => {
   const emailLists = await EmailList.aggregate([
@@ -159,16 +156,16 @@ const importEmailList = asyncHandler(async (req, res) => {
   if (!req.file) {
     throw new ApiError(400, "No file uploaded");
   }
-
-  const listName = req.body.listName;
+  
+  const {listName} = req.body;
   if (!listName) {
     throw new ApiError(400, "List name is required");
   }
   const existedlistName = await EmailList.findOne({ listName });
-    if (!existedlistName) {
+  if (existedlistName) {
     throw new ApiError(409, "List name already exists");
   }
-
+  
   let buffer;
 
   try {

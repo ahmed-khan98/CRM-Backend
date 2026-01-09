@@ -40,16 +40,16 @@ import { adminVerify } from "./middlewares/adminVerify.js";
 
 //adminRoute
 app.use("/api/v1/user", userRouter);
-app.use("/api/v1/user/department", adminVerify, departmentRouter);
-app.use("/api/v1/user/employee", adminVerify, employeeRouter);
-app.use("/api/v1/user/client", adminVerify, clientRouter);
-app.use("/api/v1/user/brand", adminVerify, brandRouter);  
-app.use("/api/v1/user/sale", adminVerify, saleRouter);
-app.use("/api/v1/user/lead", adminVerify, leadRouter);
-app.use("/api/v1/user/emailTemplate", adminVerify, emailTemplateRouter);
-app.use("/api/v1/user/brandEmail", adminVerify, brandEmailRouter);
-app.use("/api/v1/user/sentEmail", adminVerify, sentEmailRouter);
-app.use("/api/v1/user/emailList", adminVerify, emailListRouter);
+app.use("/api/v1/user/department", departmentRouter);
+app.use("/api/v1/user/employee", employeeRouter);
+app.use("/api/v1/user/client", clientRouter);
+app.use("/api/v1/user/brand", brandRouter);  
+app.use("/api/v1/user/sale", saleRouter);
+app.use("/api/v1/user/lead", leadRouter);
+app.use("/api/v1/user/emailTemplate", emailTemplateRouter);
+app.use("/api/v1/user/brandEmail", brandEmailRouter);
+app.use("/api/v1/user/sentEmail", sentEmailRouter);
+app.use("/api/v1/user/emailList", emailListRouter);
 app.use("/api/v1/user/paymentlink",paymentLinkRouter);
 
 // app.use("/api/v1/user/category", adminVerify, categoryRouter);

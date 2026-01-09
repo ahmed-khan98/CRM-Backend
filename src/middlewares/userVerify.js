@@ -19,9 +19,8 @@ export const userVerify = asyncHandler(async(req, _, next) => {
             
             throw new ApiError(401, "Invalid Access Token")
         }
-        if (user?.role !== 'USER') {
-            
-            throw new ApiError(403, "Unauthenticated User")
+        if (user?.role !== "ADMIN" && user?.role !== "USER") {   
+            throw new ApiError(403, "Access Denied")
         }
     
         req.user = user;

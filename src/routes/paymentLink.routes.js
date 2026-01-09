@@ -10,13 +10,14 @@ import {
   createPaypalOrderLinkById,
   paymentChargerByOrderId,
 } from "../controllers/paymentLink.controller.js";
+import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-// router.use(adminVerify);
+router.use(verifyJWT);
 
-router.route("/").get(adminVerify,getAllPaymentLinks);
-router.route("/add").post(adminVerify,createPaymentLink);
+router.route("/").get(getAllPaymentLinks);
+router.route("/add").post(createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderId/charge").post(paymentChargerByOrderId);
 router

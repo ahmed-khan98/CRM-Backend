@@ -107,13 +107,13 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const loggedInUser = await Employee.findById(user._id).select(
     "-password -refreshToken"
-  );
+  ).populate("departmentId", "name");
 
   const options = {
     httpOnly: true,
     secure: true,
     sameSite: "none",
-    path: "/",
+    path: "/",  
   };
 
   return res

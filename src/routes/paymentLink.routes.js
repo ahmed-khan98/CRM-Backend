@@ -14,10 +14,10 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.use(verifyJWT);
+// router.use(verifyJWT);
 
 router.route("/").get(getAllPaymentLinks);
-router.route("/add").post(createPaymentLink);
+router.route("/add").post(verifyJWT,createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderId/charge").post(paymentChargerByOrderId);
 router

@@ -11,7 +11,6 @@ const {
 } = process.env;
 
 export async function generateAccessToken(merchantType) {
-  console.log(merchantType, "=========merchantType");
   let CLIENT_ID, CLIENT_SECRET;
 
   const type = merchantType?.trim();

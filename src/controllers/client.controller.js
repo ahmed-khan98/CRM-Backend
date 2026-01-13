@@ -41,7 +41,6 @@ const createClient = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Client image is not uploaded");
   }
   
-  console.log("image.url-------=>>", image.url);
   const client = await Client.create({
     name,
     phoneNo,

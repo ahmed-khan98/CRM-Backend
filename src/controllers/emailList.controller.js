@@ -173,7 +173,6 @@ const importEmailList = asyncHandler(async (req, res) => {
   try {
     buffer = await fsp.readFile(req.file.path);
   } catch (e) {
-    console.error(e, "Error reading uploaded file");
     throw new ApiError(400, "Unable to read uploaded file");
   }
 

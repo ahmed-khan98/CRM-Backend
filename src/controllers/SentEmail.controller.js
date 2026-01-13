@@ -15,8 +15,8 @@ const DOMAIN = process.env.MAILGUN_DOMAIN;
 const API_KEY = process.env.MAILGUN_API_KEY;
 const BATCH_SIZE = 1000;
 
-const mailgun = new Mailgun(formData);
-const mg = mailgun.client({ username: "api", key: API_KEY });
+  const mailgun = new Mailgun(formData);
+
 
 const sentSingleEmail = asyncHandler(async (req, res) => {
   const { fromemail, email, subject, body, leadId, brandId } = req.body;
@@ -234,6 +234,9 @@ const getAllBulkEmails = asyncHandler(async (req, res) => {
 // });
 
 const sendBulkEmails = asyncHandler(async (req, res) => {
+
+const mg = mailgun.client({ username: "api", key: API_KEY });
+
     const { listId, fromemail, subject, body, compaignName, brandId } = req.body;
 
     if ([fromemail, subject, body, listId].some((field) => !field)) {

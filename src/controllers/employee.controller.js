@@ -40,7 +40,6 @@ const createEmployee = asyncHandler(async (req, res) => {
   if (!image.url) {
     throw new ApiError(400, "Employee image is not uploaded");
   }
-  console.log("image.url-------=>>", image.url);
   const employee = await Employee.create({
     fullName,
     phoneNo,

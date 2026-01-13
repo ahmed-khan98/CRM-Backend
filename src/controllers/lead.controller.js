@@ -103,7 +103,6 @@ const importLeadFromExcel = async (req, res) => {
   try {
     buffer = await fsp.readFile(req.file.path);
   } catch (e) {
-    console.log(e, "error");
     throw new ApiError(400, "Unable to read uploaded file");
   }
 
@@ -165,19 +164,19 @@ const importLeadFromExcel = async (req, res) => {
     const brandInfo = findBrandInfo(brandName, brands, brandStrict, brandLoose);
 
     // optional deep debug on misses
-    if (
+    // if (
       // !agentId ||
       !brandInfo
-    ) {
-      console.warn(`[row ${i + 2}] lookup miss`, {
-        // agentName,
-        // agentStrictHit: empStrict.has(norm(agentName)),
-        // agentLooseHit: empLoose.has(loose(agentName)),
-        brandName,
-        brandStrictHit: brandStrict.has(norm(brandName)),
-        brandLooseHit: brandLoose.has(loose(brandName)),
-      });
-    }
+    // ) {
+    //   console.warn(`[row ${i + 2}] lookup miss`, {
+    //     // agentName,
+    //     // agentStrictHit: empStrict.has(norm(agentName)),
+    //     // agentLooseHit: empLoose.has(loose(agentName)),
+    //     brandName,
+    //     brandStrictHit: brandStrict.has(norm(brandName)),
+    //     brandLooseHit: brandLoose.has(loose(brandName)),
+    //   });
+    // }
 
     const missing = [];
     if (!name) missing.push("Customer Name");
@@ -201,13 +200,11 @@ const importLeadFromExcel = async (req, res) => {
       paidStatus,
       lastAction,
       // agent: agentId,
-      brandId: brandInfo.brandId, // Brand _id
-      departmentId: brandInfo.departmentId, // from Brand
+      brandId: brandInfo.brandId,
+      departmentId: brandInfo.departmentId, 
       lastComment: lastComment || "",
     };
-    // console.log("doc:", doc);
 
-    // Upsert by normalized email if present; else fallback composite key
     if (email) {
       bulkOps.push({
         updateOne: {
@@ -229,12 +226,12 @@ const importLeadFromExcel = async (req, res) => {
 
   // 4) Execute bulk
   let result = { upsertedCount: 0, matchedCount: 0 };
-  console.log(
-    "bulkOps length:",
-    bulkOps[0].filter,
-    bulkOps[0].update,
-    bulkOps.length
-  );
+  // console.log(
+  //   "bulkOps length:",
+  //   bulkOps[0].filter,
+  //   bulkOps[0].update,
+  //   bulkOps.length
+  // );
   if (!bulkOps.length) {
     console.warn("All rows skipped. Reasons (first 5):", skipped.slice(0, 5));
   } else {
@@ -244,7 +241,6 @@ const importLeadFromExcel = async (req, res) => {
       upsertedCount: r.upsertedCount ?? 0,
       matchedCount: r.nMatched ?? 0,
     };
-    // console.log(r, "------------->>rrrrrrrrr");
   }
 
   if (req.file?.path) await fsp.unlink(req.file.path);
@@ -332,7 +328,6 @@ const getAllLeads = asyncHandler(async (req, res) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
-  console.log(page, limit, skip, "page,limit,skip");
 
   const [items, total] = await Promise.all([
     Lead.find()
@@ -452,7 +447,6 @@ const getLeadById = asyncHandler(async (req, res) => {
     .populate("departmentId", "name")
     .populate("brandId", "name")
     .lean();
-    console.log(lead,'--------->>>>lead')
 
   const leadComment = await LeadComment.find({ leadId: id })
     .sort({ createdAt: -1 })

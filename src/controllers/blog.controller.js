@@ -128,7 +128,6 @@ const getBlogById = asyncHandler(async (req, res) => {
 
 const uploadBlogImages = asyncHandler(async (req, res) => {
   const image = req?.file;
-  console.log(image, "----------->>image");
 
   if (!image) {
     throw new ApiError(400, "image field is required");

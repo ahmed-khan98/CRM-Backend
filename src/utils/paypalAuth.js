@@ -11,20 +11,20 @@ const {
 } = process.env;
 
 export async function generateAccessToken(merchantType) {
-  console.log(merchantType,'=========merchantType')
+  console.log(merchantType, "=========merchantType");
   let CLIENT_ID, CLIENT_SECRET;
 
-  if (merchantType === "Kinatech Business Solutions LLC") {
+  const type = merchantType?.trim();
+
+  if (type === "Kinatech Business Solutions LLC") {
     CLIENT_ID = PAYPAL1_CLIENT_ID;
     CLIENT_SECRET = PAYPAL1_CLIENT_SECRET;
-  } else if (merchantType === "Pay Kinetic") {
+  } else if (type === "Pay Kinetic") {
     CLIENT_ID = PAYPAL2_CLIENT_ID;
     CLIENT_SECRET = PAYPAL2_CLIENT_SECRET;
-  } else if (merchantType === "SA Pro Solution LLC") {
+  } else if (type === "SA Pro Solution LLC") {
     CLIENT_ID = PAYPAL3_CLIENT_ID;
     CLIENT_SECRET = PAYPAL3_CLIENT_SECRET;
-  } else {
-    throw new Error("Invalid merchant type for PayPal.");
   }
 
   if (!CLIENT_ID || !CLIENT_SECRET) {
@@ -40,10 +40,10 @@ export async function generateAccessToken(merchantType) {
       method: "POST",
       body: "grant_type=client_credentials",
       // headers: { Authorization: `Basic ${auth}` },
-      headers: { 
-    Authorization: `Basic ${auth}`,
-    "Content-Type": "application/x-www-form-urlencoded", // Yeh line lazmi add karein
-  },
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded", // Yeh line lazmi add karein
+      },
     });
 
     const data = await response.json();

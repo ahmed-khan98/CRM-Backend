@@ -310,12 +310,16 @@ const createPaypalOrderLinkById = asyncHandler(async (req, res) => {
 const paymentChargerByOrderId = asyncHandler(async (req, res) => {
   const { orderID } = req.params;
   const { id } = req.body;
+  console.log("Attempting Capture for Order:", orderID);
 
   const linkDetails = await PaymentLink.findById(id);
 
   if (!linkDetails || linkDetails.paymentStatus !== "pending") {
-    return res.status(400).json({ message: "Payment Link already paid or invalid." });
+    return res
+      .status(400)
+      .json({ message: "Payment Link already paid or invalid." });
   }
+  console.log("linkDetails------>>>>>:", linkDetails);
 
   const accessToken = await generateAccessToken(linkDetails.merchantType);
 
@@ -331,9 +335,8 @@ const paymentChargerByOrderId = asyncHandler(async (req, res) => {
   );
 
   const data = await response.json();
-console.log(data,'papyal response data')
   if (!response.ok) {
-    console.error("PayPal Capture Failed:", data);
+    console.error("PayPal Error Details:", JSON.stringify(data, null, 2));
     linkDetails.paymentStatus = "failed";
     await linkDetails.save();
 
@@ -344,7 +347,7 @@ console.log(data,'papyal response data')
 
   if (data.status === "COMPLETED") {
     linkDetails.paymentStatus = "paid";
-    // transaction ID save karein
+    // transaction I  D save karein
     linkDetails.paypalOrderId = data.id;
     await linkDetails.save();
   }
@@ -367,5 +370,5 @@ export {
   getPaymentLinkById,
   getPaymentLinksByBrandId,
   createPaypalOrderLinkById,
-  paymentChargerByOrderId
+  paymentChargerByOrderId,
 };

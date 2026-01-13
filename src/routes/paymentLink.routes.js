@@ -19,7 +19,7 @@ const router = Router();
 router.route("/").get(getAllPaymentLinks);
 router.route("/add").post(verifyJWT,createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
-router.route("/pay-with-paypal/:orderId/charge").post(paymentChargerByOrderId);
+router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
 router
   .route("/:id")
   .delete(adminVerify,deletePaymentLink)

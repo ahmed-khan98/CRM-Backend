@@ -331,7 +331,7 @@ const paymentChargerByOrderId = asyncHandler(async (req, res) => {
   );
 
   const data = await response.json();
-
+console.log(data,'papyal response data')
   if (!response.ok) {
     console.error("PayPal Capture Failed:", data);
     linkDetails.paymentStatus = "failed";

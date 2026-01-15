@@ -8,9 +8,6 @@ const API_KEY = process.env.MAILGUN_API_KEY;
 const mailgun = new Mailgun(formData);
 const mg = mailgun.client({ username: "api", key: API_KEY });
 
-console.log("Checking Mailgun Key length:", process.env.MAILGUN_API_KEY?.length);
-console.log("Checking Mailgun Key starts with:", process.env.MAILGUN_API_KEY?.substring(0, 4));
-
 const sendEmail = async (fromemail, email, subject, body) => {
 
   const domain = fromemail.split("@")[1];

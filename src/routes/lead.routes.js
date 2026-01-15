@@ -13,7 +13,7 @@ router.route('/').get(getAllLeads)
 router.post("/import-excel", upload.single("file"), importLeadFromExcel);
 router.route('/add').post(createLead)
 router.route('/:id').delete(adminVerify,deleteLead).get(getLeadById)
-router.route('/:leadId/updateActionLead').patch(adminVerify,LeadAction)
+router.route('/:leadId/updateActionLead').patch(LeadAction)
 router.route('/:departmentId/departmentLead').get(getLeadByDepartId)
 router.route('/:brandId/brandLead').get(getAllLeadsByBrandId)
 

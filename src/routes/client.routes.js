@@ -12,7 +12,7 @@ router.use(verifyJWT)
 
 router.route('/').get(filterByRole,getAllClients)
 router.route('/add').post(upload.single("image"),createClient)
-router.route('/:id').patch(checkRole("ADMIN",'SUBADMIN'),upload.single("image"),updateClient).delete(adminVerify,deleteClient).get(getClientById)
+router.route('/:id').patch(checkRole("ADMIN",'SUBADMIN'),upload.single("image"),updateClient).delete(checkRole("ADMIN",'SUBADMIN'),deleteClient).get(getClientById)
 router.route('/:id/departmentClient').get(getClientByDepartId)
 
 export default router   

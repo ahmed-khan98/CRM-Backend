@@ -11,20 +11,22 @@ import {
   paymentChargerByOrderId,
 } from "../controllers/paymentLink.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { checkRole } from "../middlewares/checkRole.js";
+import { filterByRole } from "../middlewares/filterByRole.js";
 
 const router = Router();
 
 // router.use(verifyJWT);
 
-router.route("/").get(getAllPaymentLinks);
+router.route("/").get(filterByRole,getAllPaymentLinks);
 router.route("/add").post(verifyJWT,createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
 router
   .route("/:id")
-  .delete(adminVerify,deletePaymentLink)
+  .delete(checkRole("ADMIN",'SUBADMIN'),deletePaymentLink)
   .get(getPaymentLinkById)
-  .patch(adminVerify,updatePaymentLink);
+  .patch(updatePaymentLink);
 router.route("/:brandId/brandPaymentLink").get(getPaymentLinksByBrandId);
 router.route("/:leadId/leadPaymentLink").get(getPaymentLinkById);
 

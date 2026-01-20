@@ -16,12 +16,7 @@ const employeeSchema = new Schema(
       index: true,
       required: true,
     },
-    // lastName: {
-    //   type: String,
-    //   lowercase: true,
-    //   trim: true,
-    //   index: true,
-    // },
+
     designation: { type: String, required: true, trim: true },
     email: {
       type: String,

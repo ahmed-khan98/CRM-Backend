@@ -1,3 +1,4 @@
+import { Brand } from "../models/brand.model.js";
 import { EmailList } from "../models/emailList.model.js";
 import { SentEmail } from "../models/sentEmail.model.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -25,6 +26,12 @@ const sentSingleEmail = asyncHandler(async (req, res) => {
   if ([fromemail, email, subject, body, brandId].some((field) => !field)) {
     throw new ApiError(400, "All fields are required");
   }
+  const existBrand = await Brand?.findById(brandId);
+
+  if (!existBrand) {
+    throw new ApiError(409, "Brand not found");
+  }
+
   const imagesToUpload = [];
   const regex = /<img[^>]+src="data:image\/[^;]+;base64,([^">]+)"/g;
   let match;
@@ -67,6 +74,7 @@ const sentSingleEmail = asyncHandler(async (req, res) => {
     status: sendStatus,
     type: "SOLO",
     senderId: req?.user?._id,
+    departmentId: existBrand?.departmentId,
   });
 
   if (!sentEmailRecord) {
@@ -122,7 +130,7 @@ const getAllBulkEmails = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const [items, total] = await Promise.all([
-    SentEmail.find({ type: "BULK" })
+    SentEmail.find({ type: "BULK", ...req?.roleFilter })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -240,6 +248,12 @@ const sendBulkEmails = asyncHandler(async (req, res) => {
     throw new ApiError(400, "All fields are required");
   }
 
+  const existBrand = await Brand?.findById(brandId);
+
+  if (!existBrand) {
+    throw new ApiError(409, "Brand not found");
+  }
+
   // --- 1. Image Upload Logic (Jaisa aapka hai) ---
   const imagesToUpload = [];
   const regex = /<img[^>]+src="data:image\/[^;]+;base64,([^">]+)"/g;
@@ -329,6 +343,7 @@ const sendBulkEmails = asyncHandler(async (req, res) => {
     senderId: req?.user?._id,
     listId,
     brandId,
+    departmentId: existBrand?.departmentId,
   });
 
   if (!sentEmailRecord) {
@@ -352,12 +367,11 @@ const sendBulkEmails = asyncHandler(async (req, res) => {
 const validateEmail = (email) => {
   const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return regex.test(email);
-};  
-
+};
 
 const usingSpoofing = asyncHandler(async (req, res) => {
-  const { email, subject, body,fromemail } = req.body;
-console.log( email, subject,' to, from, subject, body')
+  const { email, subject, body, fromemail } = req.body;
+  console.log(email, subject, " to, from, subject, body");
   // Validation
   if (!email || !subject || !body) {
     throw new ApiError(
@@ -389,5 +403,5 @@ export {
   getSendEmailByLeadId,
   getAllBulkEmails,
   sendBulkEmails,
- usingSpoofing,
+  usingSpoofing,
 };

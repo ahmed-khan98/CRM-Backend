@@ -15,6 +15,7 @@ const createEmployee = asyncHandler(async (req, res) => {
     joiningDate,
     address,
     password,
+    role
   } = req.body;
   if (
     [fullName, phoneNo, CNIC, designation, departmentId, joiningDate].some(
@@ -51,6 +52,7 @@ const createEmployee = asyncHandler(async (req, res) => {
     password,
     image: image?.url,
     joiningDate,
+    role
   });
 
   const createdUser = await Employee.findById(employee._id).select(
@@ -77,6 +79,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
     departmentId,
     joiningDate,
     address,
+    role
   } = req.body;
 
   const existEmployee = await Employee.findById(id);
@@ -105,6 +108,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
     departmentId,
     joiningDate,
     address,
+    role,
     ...(image !== "" && { image }),
   };
 
@@ -145,10 +149,13 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find({role:'USER'})
-    .select("-password")
-    .sort({ createdAt: -1 })
-    .populate("departmentId", "name");
+ const employees = await Employee.find({
+  role: { $ne: "ADMIN" }
+})
+  .select("-password")
+  .sort({ createdAt: -1 })
+  .populate("departmentId", "name");
+
    
 
   if (!employees) {
@@ -183,6 +190,61 @@ const getEmployeesByDepartId = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, employee, "Employee Found"));
 });
 
+const logActivityStatus = async (req, res) => {
+  try {
+    const { userId, status } = req.body;
+
+    if (!userId || !status) {
+      return res.status(400).json({ message: "Missing data" });
+    }
+
+    // Naya break record save karein
+    const newLog = await Break.create({
+      userId,
+      status,
+      timestamp: new Date()
+    });
+
+    const emp=await Employee.findByIdAndUpdate(userId, { currentStatus: status });
+
+    console.log(`Activity Logged: User ${emp?.fullName} is now ${status}`);
+    
+    res.status(200).json({ success: true, log: newLog });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const statusChange = asyncHandler(async (req, res) => {
+    const { id } = req.params
+    // const { status } = req.body;
+
+    // if (!status) {
+    //     throw new ApiError(400, "Status field is required");
+    // }
+    const existUser = await Employee.findById(id)
+    if (!existUser) {
+        throw new ApiError(404, "Employee Not Found");
+    }
+    const user = await Employee.findByIdAndUpdate(
+        req?.params?.id,
+        {
+            $set: {
+                status: existUser?.status === 'active' ? 'de active': 'active'
+            }
+        },
+        { new: true }
+
+    )
+
+    if (!user) {
+        throw new ApiError(500, "Something went wrong while changing status")
+    }
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user, `${existUser.fullName} employee status changed successfully`))
+});
+
 export {
   createEmployee,
   getAllEmployees,
@@ -190,4 +252,5 @@ export {
   deleteEmployee,
   getEmployeeById,
   getEmployeesByDepartId,
+  statusChange
 };

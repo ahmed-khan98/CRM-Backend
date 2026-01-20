@@ -9,7 +9,7 @@ const router=Router();
 router.use(verifyJWT)
 
 router.route('/').get(getAllEmailLists)
-router.post("/importEmailList", upload.single("file"), importEmailList);
+router.post("/importEmailList",upload.single("file"), importEmailList);
 router.route("/:id").delete(adminVerify,deleteEmailList);
     
 export default router   

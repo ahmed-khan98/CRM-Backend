@@ -134,7 +134,7 @@ const deleteClient = asyncHandler(async (req, res) => {
 });
 
 const getAllClients = asyncHandler(async (req, res) => {
-  const clients = await Client.find()
+  const clients = await Client.find({ ...req.roleFilter })
   .sort({ createdAt: -1 }) 
     .populate("departmentId", "name")
     .populate("handleBy", "fullName")

@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { Employee } from "../models/employee.model.js";
 
 export const verifyJWT = asyncHandler(async (req, _, next) => {
+  
   const token =
     req.cookies?.accessToken ||
     req.header("Authorization")?.replace("Bearer ", "");
@@ -21,9 +22,9 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
     throw new ApiError(401, "Invalid Access Token");
   }
 
-  if (user?.role !== "ADMIN" && user?.role !== "USER") {
-    throw new ApiError(403, "Access Denied: You do not have permission to perform this action.");
-  }
+  // if (user?.role !== "ADMIN" && user?.role !== "USER") {
+  //   throw new ApiError(403, "Access Denied: You do not have permission to perform this action.");
+  // }
 
   req.user = user;
   next();

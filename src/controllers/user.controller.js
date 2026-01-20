@@ -5,7 +5,6 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -89,8 +88,12 @@ const loginUser = asyncHandler(async (req, res) => {
     $or: [{ email }],
   });
 
-  if (!user) {
+  if (!user ) {
     throw new ApiError(404, "User does not exist");
+  }
+  
+  if (user.status !== 'active') {
+    throw new ApiError(404, `Your account is ${user.status}`);
   }
 
   const isPasswordValid = await user.isPasswordCorrect(password);
@@ -229,17 +232,16 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
-  const { email } = req.body;
+  const { fullName,phoneNo,CNIC } = req.body;
 
-  if (!email) {
-    throw new ApiError(400, "All fields are required");
-  }
 
   const user = await Employee.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
-        email: email,
+        fullName,
+        phoneNo,
+        CNIC
       },
     },
     { new: true }

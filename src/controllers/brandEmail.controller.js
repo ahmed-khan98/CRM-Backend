@@ -1,19 +1,26 @@
+import { Brand } from "../models/brand.model.js";
 import { Domain } from "../models/brandEmail.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const createBrandEmail = asyncHandler(async (req, res) => {
-  const { name, email,brandId } = req.body;
+  const { name, email, brandId } = req.body;
 
-  if (!name || !email|| !brandId) {
+  if (!name || !email || !brandId) {
     throw new ApiError(400, "All field  is required");
+  }
+  const existBrand = await Brand?.findById(brandId);
+
+  if (!existBrand) {
+    throw new ApiError(409, "Brand not found");
   }
 
   const brandEmail = await Domain.create({
     name,
     email,
-    brandId
+    brandId,
+    departmentId: existBrand?.departmentId,
   });
 
   if (!brandEmail) {
@@ -27,9 +34,11 @@ const createBrandEmail = asyncHandler(async (req, res) => {
 
 const updateBrandEmail = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, email,brandId } = req.body;
+  const { name, email, brandId } = req.body;
 
   const existBrandEmail = await Domain.findById(id);
+
+  const existBrand = await Brand?.findById(brandId);
 
   if (!existBrandEmail) {
     throw new ApiError(409, "Brand Email not found");
@@ -38,7 +47,8 @@ const updateBrandEmail = asyncHandler(async (req, res) => {
   const brandEmailData = {
     name,
     email,
-    brandId
+    brandId,
+    departmentId: existBrand?.departmentId,
   };
 
   const brandEmail = await Domain.findOneAndUpdate(
@@ -73,38 +83,43 @@ const deleteBrandEmail = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, brandEmail, "brand email deleted successfully"));
-}); 
+});
 
 const getBrandEmailById = asyncHandler(async (req, res) => {
-
   const { id } = req.params;
   const brandEmail = await Domain.findById(id);
 
   if (!brandEmail) {
     throw new ApiError(404, "brand email not found");
   }
-  return res.status(201).json(new ApiResponse(200, brandEmail, "brand email Found"));
+  return res
+    .status(201)
+    .json(new ApiResponse(200, brandEmail, "brand email Found"));
 });
 
 const getBrandEmailByBrandId = asyncHandler(async (req, res) => {
-
   const { brandId } = req.params;
-  const brandEmail = await Domain.find({brandId});
+  const brandEmail = await Domain.find({ brandId });
 
   if (!brandEmail) {
     throw new ApiError(404, "brand email not found");
   }
-  return res.status(201).json(new ApiResponse(200, brandEmail, "brand email Found"));
+  return res
+    .status(201)
+    .json(new ApiResponse(200, brandEmail, "brand email Found"));
 });
 
 const getAllBrandEmails = asyncHandler(async (req, res) => {
-  const brandEmails = await Domain.find().sort({ createdAt: -1 }).populate('brandId','name') ;
+  const brandEmails = await Domain.find({ ...req.roleFilter })
+    .sort({ createdAt: -1 })
+    .populate("brandId", "name");
   if (!brandEmails) {
     throw new ApiError(404, "Brand email not found");
   }
-  return res.status(201).json(new ApiResponse(200, brandEmails, "All brand email Found"));
+  return res
+    .status(201)
+    .json(new ApiResponse(200, brandEmails, "All brand email Found"));
 });
-
 
 export {
   createBrandEmail,
@@ -112,5 +127,5 @@ export {
   deleteBrandEmail,
   getBrandEmailById,
   getAllBrandEmails,
-  getBrandEmailByBrandId
+  getBrandEmailByBrandId,
 };

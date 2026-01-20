@@ -128,7 +128,7 @@ const deleteSale = asyncHandler(async (req, res) => {
 });
 
 const getAllSales = asyncHandler(async (req, res) => {
-  const Sales = await Sale.find()
+  const Sales = await Sale.find({ ...req.roleFilter })
     .populate("departmentId", "name")
     // .populate("clientId", "name")
     .populate("agent", "fullName")

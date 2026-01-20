@@ -49,6 +49,7 @@ const createPaymentLink = asyncHandler(async (req, res) => {
     amount,
     description,
     currency,
+    departmentId: existBrand?.departmentId,
   });
 
   if (!link) {
@@ -92,6 +93,11 @@ const updatePaymentLink = asyncHandler(async (req, res) => {
     );
   }
 
+  const existBrand = await Brand.findById(brandId);
+  if (!existBrand) {
+    throw new ApiError(404, "Brand not found");
+  }
+
   const linkData = {
     leadId,
     clientId,
@@ -105,6 +111,7 @@ const updatePaymentLink = asyncHandler(async (req, res) => {
     amount,
     description,
     currency,
+    departmentId: existBrand?.departmentId,
   };
 
   const link = await PaymentLink.findByIdAndUpdate(
@@ -148,16 +155,15 @@ const getAllPaymentLinks = asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 200);
   const skip = (page - 1) * limit;
 
-
   const [items, total] = await Promise.all([
-    PaymentLink.find()
+    PaymentLink.find({ ...req?.roleFilter })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .populate("clientId", "name email phoneNo")
       .populate("brandId", "name")
       .lean(),
-    PaymentLink.countDocuments(),
+    PaymentLink.countDocuments({ ...req?.roleFilter }),
   ]);
 
   const totalPages = Math.max(Math.ceil(total / limit), 1);
@@ -291,7 +297,6 @@ const createPaypalOrderLinkById = asyncHandler(async (req, res) => {
   });
 
   const data = await response.json();
-
 
   if (!response.ok) {
     return res

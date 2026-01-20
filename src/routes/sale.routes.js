@@ -2,14 +2,16 @@ import { Router } from "express";
 import { createSale, deleteSale, getAllSales, getSaleByAgentId, getSaleByDepartId, getSaleById, updateSale } from "../controllers/sale.controller.js";
 import { adminVerify } from "../middlewares/adminVerify.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { filterByRole } from "../middlewares/filterByRole.js";
+import { checkRole } from "../middlewares/checkRole.js";
 
 const router=Router();
 
 router.use(verifyJWT)
 
-router.route('/').get(getAllSales)
-router.route('/add').post(createSale)
-router.route('/:id').patch(adminVerify,updateSale).delete(adminVerify,deleteSale).get(getSaleById)
+router.route('/').get(filterByRole,getAllSales)
+router.route('/add').post(checkRole('ADMIN','SUBADMIN'),createSale)
+router.route('/:id').patch(checkRole('ADMIN','SUBADMIN'),updateSale).delete(adminVerify,deleteSale).get(getSaleById)
 router.route('/departmentSale/:id').get(getSaleByDepartId)
 // router.route('/clientSale/:id').get(getSaleByClientId)
 router.route('/agentSale/:id').get(getSaleByAgentId)

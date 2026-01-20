@@ -325,12 +325,15 @@ const deleteLead = asyncHandler(async (req, res) => {
 // });
 
 const getAllLeads = asyncHandler(async (req, res) => {
+    console.log(req?.user,'-------->>>>req?.user')
+
+    
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
 
   const [items, total] = await Promise.all([
-    Lead.find()
+    Lead.find({ ...req.roleFilter })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -338,7 +341,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       .populate("brandId", "name")
       // .populate("agent", "fullName")
       .lean(),
-    Lead.countDocuments(),
+    Lead.countDocuments({ ...req.roleFilter }),
   ]);
 
   const leadsWithLastComment = await Promise.all(

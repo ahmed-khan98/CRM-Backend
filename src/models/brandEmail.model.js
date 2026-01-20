@@ -7,6 +7,11 @@ const domainSchema = new Schema(
       ref: "Brand",
       required: true,
     },
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Department",
+      required: true,
+    },
     name: {
       type: String,
       required: true,

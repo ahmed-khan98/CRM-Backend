@@ -21,15 +21,15 @@ process.on('uncaughtException', (err) => {
 
 connectDB()
 .then(() => {
-    app.listen(process.env.PORT , () => {
-        console.log(`⚙️ Server is running at port : ${process.env.PORT}`);
+    app.listen(process.env.PORT || 8080,"0.0.0.0",() => {
+        console.log(`⚙️ Server is running at port :${process.env.PORT || 8080}`);
     })
 })
 .catch((err) => {
     console.log("MONGO db connection failed !!! ", err);
 })
 
-app.get('/',(req,res)=>{
+app.get('/health',(req,res)=>{
     console.log('--- RAILWAY HEALTH CHECK HIT SUCCESSFULLY ---');
     res.send('server running — OK')
 })

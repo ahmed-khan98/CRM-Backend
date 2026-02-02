@@ -7,15 +7,20 @@ const breakSchema = new mongoose.Schema(
       ref: "Employee",
       required: true,
     },
+    attendanceId: { type: Schema.Types.ObjectId, ref: "Attendance", required: true },
     status: {
       type: String,
       enum: ["break-in", "break-out"],
       required: true,
     },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-    },
+    breakIn: { type: Date, required: true },
+    breakOut: { type: Date, default: null },
+    duration: { type: Number, default: 0 },
+
+    // timestamp: {
+    //   type: Date,
+    //   default: Date.now,
+    // },
   },
   { timestamps: true }
 );

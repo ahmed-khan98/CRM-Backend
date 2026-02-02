@@ -1,3 +1,5 @@
+import { Attendance } from "../models/attendence.model.js";
+import { Break } from "../models/break.model.js";
 import { Employee } from "../models/employee.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -15,11 +17,11 @@ const createEmployee = asyncHandler(async (req, res) => {
     joiningDate,
     address,
     password,
-    role
+    role,
   } = req.body;
   if (
     [fullName, phoneNo, CNIC, designation, departmentId, joiningDate].some(
-      (field) => field === undefined || field === ""
+      (field) => field === undefined || field === "",
     )
   ) {
     throw new ApiError(400, "All fields are required");
@@ -52,11 +54,11 @@ const createEmployee = asyncHandler(async (req, res) => {
     password,
     image: image?.url,
     joiningDate,
-    role
+    role,
   });
 
   const createdUser = await Employee.findById(employee._id).select(
-    "-password -refreshToken"
+    "-password -refreshToken",
   );
 
   if (!createdUser) {
@@ -79,7 +81,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
     departmentId,
     joiningDate,
     address,
-    role
+    role,
   } = req.body;
 
   const existEmployee = await Employee.findById(id);
@@ -117,7 +119,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
     {
       $set: EmployeeData,
     },
-    { new: true }
+    { new: true },
   );
 
   if (!employee) {
@@ -149,14 +151,12 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployees = asyncHandler(async (req, res) => {
- const employees = await Employee.find({
-  role: { $ne: "ADMIN" }
-})
-  .select("-password")
-  .sort({ createdAt: -1 })
-  .populate("departmentId", "name");
-
-   
+  const employees = await Employee.find({
+    role: { $ne: "ADMIN" },
+  })
+    .select("-password")
+    .sort({ createdAt: -1 })
+    .populate("departmentId", "name");
 
   if (!employees) {
     throw new ApiError("404", "Employee not found");
@@ -190,59 +190,153 @@ const getEmployeesByDepartId = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, employee, "Employee Found"));
 });
 
-const logActivityStatus = async (req, res) => {
-  try {
-    const { userId, status } = req.body;
-
-    if (!userId || !status) {
-      return res.status(400).json({ message: "Missing data" });
-    }
-
-    // Naya break record save karein
-    const newLog = await Break.create({
-      userId,
-      status,
-      timestamp: new Date()
-    });
-
-    const emp=await Employee.findByIdAndUpdate(userId, { currentStatus: status });
-
-    console.log(`Activity Logged: User ${emp?.fullName} is now ${status}`);
-    
-    res.status(200).json({ success: true, log: newLog });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
 const statusChange = asyncHandler(async (req, res) => {
-    const { id } = req.params
-    // const { status } = req.body;
+  const { id } = req.params;
+  // const { status } = req.body;
 
-    // if (!status) {
-    //     throw new ApiError(400, "Status field is required");
-    // }
-    const existUser = await Employee.findById(id)
-    if (!existUser) {
-        throw new ApiError(404, "Employee Not Found");
-    }
-    const user = await Employee.findByIdAndUpdate(
-        req?.params?.id,
-        {
-            $set: {
-                status: existUser?.status === 'active' ? 'de active': 'active'
-            }
-        },
-        { new: true }
+  // if (!status) {
+  //     throw new ApiError(400, "Status field is required");
+  // }
+  const existUser = await Employee.findById(id);
+  if (!existUser) {
+    throw new ApiError(404, "Employee Not Found");
+  }
+  const user = await Employee.findByIdAndUpdate(
+    req?.params?.id,
+    {
+      $set: {
+        status: existUser?.status === "active" ? "de active" : "active",
+      },
+    },
+    { new: true },
+  );
 
+  if (!user) {
+    throw new ApiError(500, "Something went wrong while changing status");
+  }
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        user,
+        `${existUser.fullName} employee status changed successfully`,
+      ),
+    );
+});
+
+const breakIn = asyncHandler(async (req, res) => {  
+  const userId = req.user._id;
+  const { attendanceId } = req.body; 
+  console.log(attendanceId,'attendanceId')
+
+  if (!attendanceId) {
+    throw new ApiError(400, "Attendance ID is required to start a break");
+  }
+
+  const employee = await Employee.findById(userId);
+
+  if (!employee) {
+    throw new ApiError(404, "Employee not found");
+  }
+
+  if (employee.activityStatus === "idle") {
+    return res.status(200).json(new ApiResponse(200, {}, "Already on break."));
+  }
+
+  employee.activityStatus = "idle";
+  employee.lastBreakInTime = new Date();
+  await employee.save();
+
+  const existingBreak = await Break.findOne({
+    userId,
+    attendanceId,
+    breakOut: null, 
+  });
+
+  if (existingBreak) {
+    throw new ApiError(400, "A break is already active in records.");
+  }
+
+  const newLog = await Break.create({
+    userId,
+    attendanceId,
+    breakIn: new Date(),
+    status: "break-in",
+  });
+
+  console.log(`Activity: User ${employee.fullName} is now IDLE`);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        activityStatus: employee.activityStatus,
+        lastBreakInTime: employee.lastBreakInTime,
+        breakRecord: newLog
+      },
+      "Break-In registered successfully"
     )
+  );
+});
 
-    if (!user) {
-        throw new ApiError(500, "Something went wrong while changing status")
-    }
-    return res
-        .status(200)
-        .json(new ApiResponse(200, user, `${existUser.fullName} employee status changed successfully`))
+const manualBreakOut = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { attendanceId } = req.body;
+
+  if (!attendanceId) {
+    throw new ApiError(400, "Attendance ID is required for break-out.");
+  }
+
+  const employee = await Employee.findById(userId);
+
+  if (employee?.activityStatus === "active") {
+    return res.status(200).json(new ApiResponse(200, {}, "User is already active."));
+  }
+
+  const openBreak = await Break.findOne({
+    userId,
+    attendanceId,
+    breakOut: null
+  }).sort({ createdAt: -1 }); 
+
+  if (!openBreak) {
+    employee.activityStatus = "active";
+    await employee.save();
+    return res.status(200).json(new ApiResponse(200, {}, "No open break record found, but status reset to active."));
+  }
+
+  const now = new Date();
+  const diffInMs = now - openBreak.breakIn;
+  const diffInMins = Math.round(diffInMs / 60000); 
+
+  openBreak.breakOut = now;
+  openBreak.status = "break-out"; 
+  openBreak.duration = diffInMins; 
+  await openBreak.save();
+
+  await Attendance.findByIdAndUpdate(attendanceId, {
+    $inc: { totalBreakMinutes: diffInMins }
+  });
+
+  employee.activityStatus = "active";
+  employee.lastBreakInTime = null; 
+  await employee.save();
+
+  console.log(`Activity: User ${employee.fullName} is now ACTIVE. Break Duration: ${diffInMins} mins.`);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        activityStatus: "active",
+        lastBreakInTime: null,
+        breakDuration: diffInMins,
+        totalBreakMinutesInShift: await Attendance.findById(attendanceId).then(a => a.totalBreakMinutes)
+      },
+      `Break-Out successfully. Duration: ${diffInMins} minutes.`
+    )
+  );
 });
 
 export {
@@ -252,5 +346,7 @@ export {
   deleteEmployee,
   getEmployeeById,
   getEmployeesByDepartId,
-  statusChange
+  statusChange,
+  breakIn,
+  manualBreakOut,
 };

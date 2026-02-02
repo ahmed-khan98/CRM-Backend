@@ -148,11 +148,11 @@ const importLeadFromExcel = async (req, res) => {
     const r = rows[i];
 
     // Excel column names (exact headers)
-    const name = r["Customer Name"] || r["Customer Name (Full)"];
-    const brandMark = r["Brand Mark"] || "";
-    const serialNo = r["Serial Number"]?.toString() || "";
-    const phoneNo = r["Phone Number"] || r["Phone (UI)"];
-    const email = r["Email"] || r["Email (UI)"];
+    const name = r["Customer Name"] || r["Customer Name (Full)"]|| r["Name"];
+    const brandMark = r["Brand Mark"] || r["BrandMark"] || r["Brand"]|| r["brand"] || "";;
+    const serialNo = r["Serial Number"]?.toString() || r["serial number"]?.toString() || r["Serial No"]?.toString() || r["SerialNo"]?.toString() || "";
+    const phoneNo = r["Phone Number"] || r["Phone (UI)"] || r["phone number"] ||r["PhoneNo"];
+    const email = r["Email"] || r["Email (UI)"] || r["email"];
     const paidStatus = mapPaid(r["Paid Status"]);
     const lastAction = mapLastAction(r["Last Action"]);
     // const agentName = r["Agent"];
@@ -166,7 +166,7 @@ const importLeadFromExcel = async (req, res) => {
     // optional deep debug on misses
     // if (
       // !agentId ||
-      !brandInfo
+      // !brandInfo
     // ) {
     //   console.warn(`[row ${i + 2}] lookup miss`, {
     //     // agentName,
@@ -325,7 +325,6 @@ const deleteLead = asyncHandler(async (req, res) => {
 // });
 
 const getAllLeads = asyncHandler(async (req, res) => {
-    console.log(req?.user,'-------->>>>req?.user')
 
     
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
@@ -341,7 +340,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       .populate("brandId", "name")
       // .populate("agent", "fullName")
       .lean(),
-    Lead.countDocuments({ ...req.roleFilter }),
+    Lead.countDocuments(),
   ]);
 
   const leadsWithLastComment = await Promise.all(

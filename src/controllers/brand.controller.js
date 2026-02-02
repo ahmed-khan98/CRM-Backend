@@ -125,7 +125,7 @@ const getBrandById = asyncHandler(async (req, res) => {
 
 const getAllBrands = asyncHandler(async (req, res) => {
   const brand = await Brand.find({ ...req.roleFilter }).populate("departmentId", "name");
-  if (!brand) {
+  if (!brand) { 
     throw new ApiError(404, "brand not found");
   }
   return res.status(201).json(new ApiResponse(200, brand, "brand Found"));

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createEmployee, deleteEmployee, getAllEmployees, getEmployeeById, getEmployeesByDepartId, statusChange, updateEmployee } from "../controllers/employee.controller.js";
+import { breakIn, createEmployee, deleteEmployee, getAllEmployees, getEmployeeById, getEmployeesByDepartId, manualBreakOut, statusChange, updateEmployee } from "../controllers/employee.controller.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
@@ -15,6 +15,8 @@ router.route('/add').post(checkRole("ADMIN"),upload.single("image"),createEmploy
 router.route('/:id').patch(checkRole("ADMIN"),upload.single("image"),updateEmployee).delete(checkRole("ADMIN"),deleteEmployee).get(getEmployeeById)
 router.route('/:id/departmentEmployee').get(getEmployeesByDepartId)
 router.route("/change-status/:id").patch(checkRole("ADMIN",'SUBADMIN'),statusChange)
+router.route("/breakIn").post(breakIn)
+router.route("/breakOut").post(manualBreakOut)
 
 
 

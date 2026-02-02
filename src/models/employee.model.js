@@ -49,6 +49,14 @@ const employeeSchema = new Schema(
       enum: ["USER", "ADMIN", "SUBADMIN"],
       default: "USER",
     },
+    activityStatus: {
+      type: String,
+      enum: ["active", "idle"],
+      default: "active",
+    },
+    lastBreakInTime: {
+      type: Date,
+    },
     password: {
       type: String,
       required: true,

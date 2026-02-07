@@ -153,6 +153,7 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 const getAllEmployees = asyncHandler(async (req, res) => {
   const employees = await Employee.find({
     role: { $ne: "ADMIN" },
+    ...req.roleFilter 
   })
     .select("-password")
     .sort({ createdAt: -1 })

@@ -24,7 +24,7 @@ router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
 router
   .route("/:id")
-  .delete(checkRole("ADMIN",'SUBADMIN'),deletePaymentLink)
+  .delete(verifyJWT,checkRole("ADMIN",'SUBADMIN'),deletePaymentLink)
   .get(getPaymentLinkById)
   .patch(updatePaymentLink);
 router.route("/:brandId/brandPaymentLink").get(getPaymentLinksByBrandId);

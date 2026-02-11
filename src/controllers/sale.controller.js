@@ -163,7 +163,7 @@ const getSaleByDepartId = asyncHandler(async (req, res) => {
 
 // const getSaleByClientId = asyncHandler(async (req, res) => {
 //   const { id } = req.params;
-//   const sale = await Sale.find({ clientId: id });
+//   const sale = await Sale.find({ clientId:   id });
 //   if (!sale) {
 //     throw new ApiError(404, "Sale not found for this client");
 //     // return res.status(404).json({ error: 'Sale not found' });

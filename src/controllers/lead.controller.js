@@ -340,7 +340,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       .populate("brandId", "name")
       // .populate("agent", "fullName")
       .lean(),
-    Lead.countDocuments(),
+    Lead.countDocuments({ ...req.roleFilter }),
   ]);
 
   const leadsWithLastComment = await Promise.all(

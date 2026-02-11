@@ -13,6 +13,13 @@ const TimeIn = asyncHandler(async (req, res) => {
   const nowPKT = moment().tz("Asia/Karachi");
   const currentHour = nowPKT.hour();
 
+  if (currentHour >= 6 && currentHour < 18) {
+  throw new ApiError(
+    400, 
+    "Shift timing has not started yet. You can only Time-In after 06:00 PM."
+  );
+}
+
   // Midnight Logic: Raat 12 se Subah 6 tak login = Pichli Date
   let shiftDate = nowPKT.format("YYYY-MM-DD");
   if (currentHour >= 0 && currentHour < 6) {
@@ -37,7 +44,7 @@ const TimeIn = asyncHandler(async (req, res) => {
   let attendanceStatus = "present";
 
   // Safety for shiftStart split
-  const shiftTimeStr = employee?.shiftStart || "20:00";
+  const shiftTimeStr = employee?.shiftStart || "19:00";
   const [sHour, sMin] = shiftTimeStr.split(":").map(Number);
 
   const shiftStartToday = moment()
@@ -116,7 +123,6 @@ const getTodayUserAttendance = asyncHandler(async (req, res) => {
   let shiftDate = nowPKT.format("YYYY-MM-DD");
 
   // Agar raat 12 AM se subah 6 AM ke darmiyan check kar raha hai,
-  // toh hum 26 Jan (pichli date) ki attendance dhoondenge.
   if (currentHour >= 0 && currentHour < 6) {
     shiftDate = nowPKT.clone().subtract(1, "days").format("YYYY-MM-DD");
   }

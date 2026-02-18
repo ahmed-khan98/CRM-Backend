@@ -10,7 +10,7 @@ const router=Router();
 router.use(verifyJWT)
 
 router.route('/').get(checkRole("ADMIN",'SUBADMIN'),filterByRole,getAllEmployees)
-router.route('/add').post(checkRole("ADMIN"),upload.single("image"),createEmployee)
+router.route('/add').post(checkRole("ADMIN","SUBADMIN"),upload.single("image"),createEmployee)
 router.route('/:id').patch(checkRole("ADMIN"),upload.single("image"),updateEmployee).delete(checkRole("ADMIN"),deleteEmployee).get(getEmployeeById)
 router.route('/:id/departmentEmployee').get(checkRole("ADMIN",'SUBADMIN'),getEmployeesByDepartId)
 router.route("/change-status/:id").patch(checkRole("ADMIN",'SUBADMIN'),statusChange)

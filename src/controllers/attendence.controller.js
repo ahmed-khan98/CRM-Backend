@@ -35,7 +35,7 @@ const TimeIn = asyncHandler(async (req, res) => {
   if (existingAttendance) {
     throw new ApiError(
       400,
-      `You have already timed in for the shift of ${shiftDate}`,
+      `You have already marked attendance for the shift of ${shiftDate}`,
     );
   }
   // -----------------------------
@@ -121,11 +121,12 @@ const getTodayUserAttendance = asyncHandler(async (req, res) => {
 
   // --- Wahi Logic: Shift Date nikalne ke liye ---
   let shiftDate = nowPKT.format("YYYY-MM-DD");
-
+  
   // Agar raat 12 AM se subah 6 AM ke darmiyan check kar raha hai,
   if (currentHour >= 0 && currentHour < 6) {
     shiftDate = nowPKT.clone().subtract(1, "days").format("YYYY-MM-DD");
   }
+  console.log(shiftDate,'shiftDate')
 
   // Database mein check karein ke is shiftDate ke liye entry hai?
   const attendance = await Attendance.findOne({

@@ -13,10 +13,10 @@ const TimeIn = asyncHandler(async (req, res) => {
   const nowPKT = moment().tz("Asia/Karachi");
   const currentHour = nowPKT.hour();
 
-  if (currentHour >= 6 && currentHour < 18) {
+  if (currentHour >= 8 && currentHour < 18) {
   throw new ApiError(
     400, 
-    "Shift timing has not started yet. You can only Time-In after 06:00 PM."
+    "Shift timing has not started yet. You can only Time-In after 08:00 PM."
   );
 }
 
@@ -38,13 +38,12 @@ const TimeIn = asyncHandler(async (req, res) => {
       `You have already marked attendance for the shift of ${shiftDate}`,
     );
   }
-  // -----------------------------
 
   // Late & Half Day Logic
   let attendanceStatus = "present";
 
   // Safety for shiftStart split
-  const shiftTimeStr = employee?.shiftStart || "19:00";
+  const shiftTimeStr = employee?.shiftStart || "20:30";
   const [sHour, sMin] = shiftTimeStr.split(":").map(Number);
 
   const shiftStartToday = moment()

@@ -21,6 +21,9 @@ app.use(express.urlencoded({ extended: true, limit: "1000mb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
+app.use(requestLogger);
+
+
 //routes import
 import userRouter from "./routes/user.routes.js";
 import employeeRouter from "./routes/employee.routes.js";
@@ -40,6 +43,7 @@ import emailListRouter from "./routes/emailList.routes.js";
 import TmEmailListRouter from "./routes/TmEmailList.routes.js";
 import dashboardRouter from "./routes/dashboardCount.routes.js";
 import { adminVerify } from "./middlewares/adminVerify.js";
+import { requestLogger } from "./middlewares/Logger/requestLogger.js";
 
 //adminRoute
 app.use("/api/v1/user", userRouter);
@@ -58,11 +62,6 @@ app.use("/api/v1/user/emailList", emailListRouter);
 app.use("/api/v1/user/tmEmailList", TmEmailListRouter);
 app.use("/api/v1/user/paymentlink",paymentLinkRouter);
 
-// app.use("/api/v1/user/category", adminVerify, categoryRouter);
-// app.use("/api/v1/user/subcategory", adminVerify, subcategoryRouter);
-// app.use("/api/v1/user/product", adminVerify, productRouter);
-// app.use("/api/v1/user/blog", adminVerify, blogRouter);
-// app.use("/api/v1/user", adminVerify, dashboardRouter);
 
 app.use(ErrorHandler);
 

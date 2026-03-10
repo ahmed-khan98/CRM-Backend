@@ -16,6 +16,7 @@ const breakSchema = new mongoose.Schema(
     breakIn: { type: Date, required: true },
     breakOut: { type: Date, default: null },
     duration: { type: Number, default: 0 },
+    reason: { type: String, trim: true,enum: ["Prayer", "DINNER", "SMOKING", "OTHER","SYSTEM IDLE"], default: "SYSTEM IDLE" },
 
     // timestamp: {
     //   type: Date,

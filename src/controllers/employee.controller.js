@@ -5,6 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { logoutUser } from "./user.controller.js";
 
 const createEmployee = asyncHandler(async (req, res) => {
   const {
@@ -153,7 +154,7 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 const getAllEmployees = asyncHandler(async (req, res) => {
   const employees = await Employee.find({
     role: { $ne: "ADMIN" },
-    ...req.roleFilter 
+    ...req.roleFilter,
   })
     .select("-password")
     .sort({ createdAt: -1 })
@@ -193,11 +194,7 @@ const getEmployeesByDepartId = asyncHandler(async (req, res) => {
 
 const statusChange = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  // const { status } = req.body;
 
-  // if (!status) {
-  //     throw new ApiError(400, "Status field is required");
-  // }
   const existUser = await Employee.findById(id);
   if (!existUser) {
     throw new ApiError(404, "Employee Not Found");
@@ -226,10 +223,10 @@ const statusChange = asyncHandler(async (req, res) => {
     );
 });
 
-const breakIn = asyncHandler(async (req, res) => {  
+const breakIn = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { attendanceId } = req.body; 
-  console.log(attendanceId,'attendanceId')
+  const { attendanceId } = req.body;
+  console.log(attendanceId, "attendanceId");
 
   if (!attendanceId) {
     throw new ApiError(400, "Attendance ID is required to start a break");
@@ -252,7 +249,7 @@ const breakIn = asyncHandler(async (req, res) => {
   const existingBreak = await Break.findOne({
     userId,
     attendanceId,
-    breakOut: null, 
+    breakOut: null,
   });
 
   if (existingBreak) {
@@ -274,14 +271,14 @@ const breakIn = asyncHandler(async (req, res) => {
       {
         activityStatus: employee.activityStatus,
         lastBreakInTime: employee.lastBreakInTime,
-        breakRecord: newLog
+        breakRecord: newLog,
       },
-      "Break-In registered successfully"
-    )
+      "Break-In registered successfully",
+    ),
   );
 });
 
-const manualBreakOut = asyncHandler(async (req, res) => {
+const breakOut = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { attendanceId } = req.body;
 
@@ -292,39 +289,61 @@ const manualBreakOut = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(userId);
 
   if (employee?.activityStatus === "active") {
-    return res.status(200).json(new ApiResponse(200, {}, "User is already active."));
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Employee is already active."));
   }
 
   const openBreak = await Break.findOne({
     userId,
     attendanceId,
-    breakOut: null
-  }).sort({ createdAt: -1 }); 
+    breakOut: null,
+  }).sort({ createdAt: -1 });
 
   if (!openBreak) {
     employee.activityStatus = "active";
     await employee.save();
-    return res.status(200).json(new ApiResponse(200, {}, "No open break record found, but status reset to active."));
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          {},
+          "No open break record found, but status reset to active.",
+        ),
+      );
   }
 
   const now = new Date();
   const diffInMs = now - openBreak.breakIn;
-  const diffInMins = Math.round(diffInMs / 60000); 
+  const diffInMins = Math.round(diffInMs / 60000);
 
   openBreak.breakOut = now;
-  openBreak.status = "break-out"; 
-  openBreak.duration = diffInMins; 
+  openBreak.status = "break-out";
+  openBreak.duration = diffInMins;
   await openBreak.save();
 
-  await Attendance.findByIdAndUpdate(attendanceId, {
-    $inc: { totalBreakMinutes: diffInMins }
-  });
-
+  const updatedAttendance = await Attendance.findByIdAndUpdate(
+    attendanceId,
+    {
+      $inc: { totalBreakMinutes: diffInMins },
+    },
+    { new: true },
+  );
+  console.log(
+    updatedAttendance.totalBreakMinutes,
+    "updatedAttendance?.totalBreakMinutes",
+  );
+  if (updatedAttendance.totalBreakMinutes > 60) {
+    employee.status = "de active";
+  }
   employee.activityStatus = "active";
-  employee.lastBreakInTime = null; 
+  employee.lastBreakInTime = null;
   await employee.save();
 
-  console.log(`Activity: User ${employee.fullName} is now ACTIVE. Break Duration: ${diffInMins} mins.`);
+  console.log(
+    `Activity: User ${employee.fullName} is now ACTIVE. Break Duration: ${diffInMins} mins.`,
+  );
 
   return res.status(200).json(
     new ApiResponse(
@@ -333,10 +352,13 @@ const manualBreakOut = asyncHandler(async (req, res) => {
         activityStatus: "active",
         lastBreakInTime: null,
         breakDuration: diffInMins,
-        totalBreakMinutesInShift: await Attendance.findById(attendanceId).then(a => a.totalBreakMinutes)
+        ...(updatedAttendance.totalBreakMinutes > 60 && { mustLogout: true }),
+        totalBreakMinutesInShift: await Attendance.findById(attendanceId).then(
+          (a) => a.totalBreakMinutes,
+        ),
       },
-      `Break-Out successfully. Duration: ${diffInMins} minutes.`
-    )
+      `Break-Out successfully. Duration: ${diffInMins} minutes.`,
+    ),
   );
 });
 
@@ -349,5 +371,5 @@ export {
   getEmployeesByDepartId,
   statusChange,
   breakIn,
-  manualBreakOut,
+  breakOut,
 };

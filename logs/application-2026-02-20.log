@@ -1,4 +1,0 @@
-{"ip":"::ffff:192.168.18.3","level":"info","message":"Incoming Request","method":"GET","query":{},"timestamp":"2026-02-20T18:01:03.634Z","url":"/api/v1/user/client/","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
-{"duration":"28ms","level":"info","message":"Response Sent","method":"GET","status":401,"timestamp":"2026-02-20T18:01:03.658Z","url":"/api/v1/user/client/"}
-{"ip":"::ffff:192.168.18.3","level":"info","message":"Incoming Request","method":"GET","query":{},"timestamp":"2026-02-20T18:01:03.663Z","url":"/api/v1/user/department/","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}
-{"duration":"162ms","level":"info","message":"Response Sent","method":"GET","status":401,"timestamp":"2026-02-20T18:01:03.825Z","url":"/api/v1/user/department/"}

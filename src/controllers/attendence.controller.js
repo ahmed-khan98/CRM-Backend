@@ -4,7 +4,7 @@ import { Employee } from "../models/employee.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { adjustForMidnight, getAttendanceStatus, nowInPKT, resolveFinalStatus } from "../utils/attendence/index.js";
+import { adjustForMidnight, getAttendanceStatus, nowInPKT, resolveFinalStatus, TZ } from "../utils/attendence/index.js";
 
 
 const TimeIn = asyncHandler(async (req, res) => {
@@ -16,7 +16,7 @@ const TimeIn = asyncHandler(async (req, res) => {
   const nowPKT = nowInPKT();
   const currentHour = nowPKT.hour();
 
-  if (currentHour >= 8 && currentHour < 18)
+  if (currentHour >= 8 && currentHour < 20)
     throw new ApiError(
       400,
       "Shift timing has not started yet. You can only Time-In after 08:00 PM.",
@@ -127,6 +127,7 @@ const TimeOut = asyncHandler(async (req, res) => {
     null,
     { sort: { createdAt: -1 } }
   );
+ const   employee = await Employee.findByIdAndUpdate(attendance.employeeId);
 
   if (!attendance) throw new ApiError(404, "No active shift found");
 
@@ -134,7 +135,7 @@ const TimeOut = asyncHandler(async (req, res) => {
     throw new ApiError(400, "TimeIn not found. Cannot calculate status.");
 
   const timeInMoment = moment(attendance.timeIn).tz(TZ);
-  const baseStatus = getAttendanceStatus(timeInMoment, attendance.shiftStart || employee?.shiftStart);
+  const baseStatus = getAttendanceStatus(timeInMoment, attendance.shiftStart || employee?.shiftStart || process.env.SHIFT_START);
   const finalStatus = resolveFinalStatus(timeInMoment, nowPKT, baseStatus);
 
   const updated = await Attendance.findByIdAndUpdate(
@@ -232,10 +233,11 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
   let query = {};
 
   // 1. Employees Filter
-  let employeeListQuery = { ...req.roleFilter }; // Role-based filter from middleware
+  let employeeListQuery = { ...req.roleFilter,status : "active" }; 
   if (employeeId && employeeId !== "undefined" && employeeId !== "") {
-    employeeListQuery._id = employeeId;
+    employeeListQuery._id = employeeId
   }
+  console.log(employeeListQuery, "employeeListQuery");
 
   const employees = await Employee.find(employeeListQuery).select(
     "fullName designation",

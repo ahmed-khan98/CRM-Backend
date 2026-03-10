@@ -57,7 +57,7 @@ const saleSchema = new Schema(
     createdAt: { type: Date, default: Date.now },
     status: {
       type: String,
-      enum: ["paid", "charge back", "refund"],
+      enum: ["paid", "charge back",],
       default: "paid",
     },
   },

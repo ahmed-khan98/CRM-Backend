@@ -22,7 +22,7 @@ process.on('uncaughtException', (err) => {
 connectDB()
 .then(() => {
     app.listen(process.env.PORT , () => {
-        console.log(`⚙️ Server is running at port :${process.env.PORT}`);
+        console.log(`⚙️ Server is running at port :${process.env.PORT || 8080}`);
     })
 })
 .catch((err) => {

@@ -80,6 +80,7 @@ const createLead = asyncHandler(async (req, res) => {
     phoneNo,
     email,
     departmentId,
+    agent: req.user._id,
     brandId,
     serialNo,
     brandMark,
@@ -114,76 +115,27 @@ const importLeadFromExcel = async (req, res) => {
     blankrows: false,
   });
 
-  // 2) Preload lookups (name -> id)
-  const [employees, brands] = await Promise.all([
-    Employee.find({}, { _id: 1, fullName: 1 }),
-    Brand.find({}, { _id: 1, name: 1, departmentId: 1 }),
-  ]);
 
-  const empStrict = new Map(
-    employees.map((e) => [norm(e.fullName), e._id.toString()])
-  );
-  const empLoose = new Map(
-    employees.map((e) => [loose(e.fullName), e._id.toString()])
-  );
-
-  const brandStrict = new Map(
-    brands.map((b) => [
-      norm(b.name),
-      { brandId: b._id.toString(), departmentId: b.departmentId?.toString() },
-    ])
-  );
-  const brandLoose = new Map(
-    brands.map((b) => [
-      loose(b.name),
-      { brandId: b._id.toString(), departmentId: b.departmentId?.toString() },
-    ])
-  );
-
-  // 3) Build bulk ops
   const bulkOps = [];
   const skipped = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-
     // Excel column names (exact headers)
-    const name = r["Customer Name"] || r["Customer Name (Full)"]|| r["Name"];
-    const brandMark = r["Brand Mark"] || r["BrandMark"] || r["Brand"]|| r["brand"] || "";;
-    const serialNo = r["Serial Number"]?.toString() || r["serial number"]?.toString() || r["Serial No"]?.toString() || r["SerialNo"]?.toString() || "";
-    const phoneNo = r["Phone Number"] || r["Phone (UI)"] || r["phone number"] ||r["PhoneNo"];
+    const name = r["Customer Name"] || r["Customer name"]|| r["Name"] || r["name"];
+    const brandMark = r["Brand Mark"] ||  r["Brand mark"] || r["BrandMark"] || r["mark"] || r["Mark"] || r["brand mark"] || r["brandmark"] || r["company"] || r["companyName"] || r["Company"]  || r["company name"] || r["Company Name"]|| "";
+    const serialNo = r["Serial Number"] || r["serial number"] || r["Serial No"] || r["SerialNo"] || r["Serialno"] || r["serialno"]|| r["serial no"] || "";
+    const phoneNo = r["Phone Number"] || r["Phone (UI)"] || r["phone number"] ||r["PhoneNo"] ||r["Phone no"] ||r["Phoneno"] ||r["phone no"];
     const email = r["Email"] || r["Email (UI)"] || r["email"];
-    const paidStatus = mapPaid(r["Paid Status"]);
-    const lastAction = mapLastAction(r["Last Action"]);
-    // const agentName = r["Agent"];
-    const lastComment = r["Last Comment"];
-    const brandName = r["Brand Name"] || r["Brand"] || r["Brands"];
+    const brandName = r["Brand Name"] ||r["BrandName"] || r["Brand"] || r["brand"];
 
-    // Lookups (robust)
-    // const agentId = findAgentId(agentName, employees, empStrict, empLoose);
-    const brandInfo = findBrandInfo(brandName, brands, brandStrict, brandLoose);
-
-    // optional deep debug on misses
-    // if (
-      // !agentId ||
-      // !brandInfo
-    // ) {
-    //   console.warn(`[row ${i + 2}] lookup miss`, {
-    //     // agentName,
-    //     // agentStrictHit: empStrict.has(norm(agentName)),
-    //     // agentLooseHit: empLoose.has(loose(agentName)),
-    //     brandName,
-    //     brandStrictHit: brandStrict.has(norm(brandName)),
-    //     brandLooseHit: brandLoose.has(loose(brandName)),
-    //   });
-    // }
+    // const brandInfo = await Brand.findOne({ name: brandName });
+    // console.log(brandInfo, 'brandInfo');
+   
 
     const missing = [];
     if (!name) missing.push("Customer Name");
-    // if (!brandMark) missing.push("Brand Mark");
-    // if (!serialNo) missing.push("Serial Number");
     if (!phoneNo) missing.push("Phone Number");
-    // if (!agentId) missing.push(`Agent not found:  "${agentName}"`);
     if (!brandInfo) missing.push(`Brand not found: "${brandName}"`);
 
     if (missing.length) {
@@ -197,14 +149,10 @@ const importLeadFromExcel = async (req, res) => {
       serialNo,
       phoneNo,
       email: email ? norm(email) : undefined,
-      paidStatus,
-      lastAction,
-      // agent: agentId,
-      brandId: brandInfo.brandId,
-      departmentId: brandInfo.departmentId, 
-      lastComment: lastComment || "",
+      agent: req.user._id,
+      // brandId: brandInfo.brandId,
+      departmentId: req.user.departmentId, 
     };
-
     if (email) {
       bulkOps.push({
         updateOne: {
@@ -224,14 +172,8 @@ const importLeadFromExcel = async (req, res) => {
     }
   }
 
-  // 4) Execute bulk
   let result = { upsertedCount: 0, matchedCount: 0 };
-  // console.log(
-  //   "bulkOps length:",
-  //   bulkOps[0].filter,
-  //   bulkOps[0].update,
-  //   bulkOps.length
-  // );
+
   if (!bulkOps.length) {
     console.warn("All rows skipped. Reasons (first 5):", skipped.slice(0, 5));
   } else {
@@ -338,7 +280,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       .limit(limit)
       .populate("departmentId", "name")
       .populate("brandId", "name")
-      // .populate("agent", "fullName")
+      .populate("agent", "fullName")
       .lean(),
     Lead.countDocuments({ ...req.roleFilter }),
   ]);
@@ -448,6 +390,7 @@ const getLeadById = asyncHandler(async (req, res) => {
   const lead = await Lead.findById(id)
     .populate("departmentId", "name")
     .populate("brandId", "name")
+    .populate("agent", "fullName")
     .lean();
 
   const leadComment = await LeadComment.find({ leadId: id })

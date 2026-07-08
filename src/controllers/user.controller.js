@@ -5,6 +5,9 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import { Attendance } from "../models/attendence.model.js";
+import moment from "moment-timezone";
+import { Break } from "../models/break.model.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -73,16 +76,8 @@ const registerUser = asyncHandler(async (req, res) => {
 });
 
 const loginUser = asyncHandler(async (req, res) => {
-  //151.115.98.9
-  //192.168.18.1 farhan
-  // 151.115.98.9/32 mongodb ip access for ppi
 
   const { email, password } = req.body;
-  const userIp = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
-
-  if (!password && !email) {
-    throw new ApiError(400, "email or password is required");
-  }
 
   const user = await Employee.findOne({
     $or: [{ email }],
@@ -121,6 +116,7 @@ const loginUser = asyncHandler(async (req, res) => {
     .status(200)
     .cookie("accessToken", accessToken, options)
     .cookie("refreshToken", refreshToken, options)
+    .cookie("currentUser", loggedInUser, options)
     .json(
       new ApiResponse(
         200,
@@ -135,6 +131,31 @@ const loginUser = asyncHandler(async (req, res) => {
 }); 
 
 const logoutUser = asyncHandler(async (req, res) => {
+const { forceLogout } = req.body
+   const nowPKT = moment().tz("Asia/Karachi");
+    const currentHour = nowPKT.hour();
+  
+    // --- Wahi Logic: Shift Date nikalne ke liye ---
+    let shiftDate = nowPKT.format("YYYY-MM-DD");
+  
+    // Agar raat 12 AM se subah 11 AM ke darmiyan check kar raha hai,
+    if (currentHour >= 0 && currentHour < 11) {
+      shiftDate = nowPKT.clone().subtract(1, "days").format("YYYY-MM-DD");
+    }
+  
+    // Database mein check karein ke is shiftDate ke liye entry hai?
+    const attendance = await Attendance.findOne({
+      employeeId: req.user._id,
+      shiftDate: shiftDate,
+    });
+
+    if (!forceLogout  && attendance && !attendance.timeOut && req?.user?.role === "USER") {
+    throw new ApiError(
+      400, 
+      "Logout failed! Please Time-Out your shift before logging out."
+    );
+  }
+
   const loggedOutUser= await Employee.findByIdAndUpdate(
     req.user._id,
     {
@@ -226,9 +247,20 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
+  const employee = req.user; // already fetched in verifyJWT
+
+  let activeBreak = null;
+
+  // Agar employee break pe hai toh active break fetch karo
+  if (employee.activityStatus === "break") {
+    activeBreak = await Break.findOne({
+      userId: employee._id,
+      status: "break-in", // sirf active break
+    }).sort({ createdAt: -1 }); // latest break
+  }
   return res
     .status(200)
-    .json(new ApiResponse(200, req.user, "User fetched successfully"));
+    .json(new ApiResponse(200, { ...req.user.toJSON(), activeBreak }, "User fetched successfully"));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {

@@ -7,7 +7,10 @@ const breakSchema = new mongoose.Schema(
       ref: "Employee",
       required: true,
     },
-    attendanceId: { type: Schema.Types.ObjectId, ref: "Attendance", required: true },
+    shiftDate: {
+      type: String,
+      required: true,
+    },
     status: {
       type: String,
       enum: ["break-in", "break-out"],
@@ -16,14 +19,23 @@ const breakSchema = new mongoose.Schema(
     breakIn: { type: Date, required: true },
     breakOut: { type: Date, default: null },
     duration: { type: Number, default: 0 },
-    reason: { type: String, trim: true,enum: ["Prayer", "DINNER", "SMOKING", "OTHER","SYSTEM IDLE"], default: "SYSTEM IDLE" },
-
-    // timestamp: {
-    //   type: Date,
-    //   default: Date.now,
-    // },
+    type: {
+      type: String,
+      trim: true,
+      enum: [
+        "MEAL",
+        "REST ROOM",
+        "OFFICIAL",
+        "TEA",
+        "PRAYER",
+        "SMOKING",
+        "SYSTEM IDLE",
+      ],
+      default: "SYSTEM IDLE",
+    },
+    reason: { type: String },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export const Break = mongoose.model("Break", breakSchema);

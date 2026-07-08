@@ -11,15 +11,12 @@ import {
 } from "../controllers/user.controller.js";
 import {upload} from "../middlewares/multer.middleware.js"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-
+import { loginLimiter } from "../middlewares/rateLimiter/page.js";
 
 const   router = Router()
 
-// router.route("/adminLogin").post(loginUser)
-
 router.route("/register").post(upload.single("avatar"),registerUser)
-
-router.route("/userLogin").post(loginUser)
+router.route("/userLogin").post(loginLimiter,loginUser)
 
 //secured routes
 router.route("/logout").post(verifyJWT,  logoutUser)

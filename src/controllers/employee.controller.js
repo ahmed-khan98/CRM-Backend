@@ -5,7 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
-import { logoutUser } from "./user.controller.js";
+import mongoose from "mongoose";
 
 const createEmployee = asyncHandler(async (req, res) => {
   const {
@@ -44,6 +44,7 @@ const createEmployee = asyncHandler(async (req, res) => {
   if (!image.url) {
     throw new ApiError(400, "Employee image is not uploaded");
   }
+
   const employee = await Employee.create({
     fullName,
     phoneNo,
@@ -182,7 +183,9 @@ const getEmployeeById = asyncHandler(async (req, res) => {
 
 const getEmployeesByDepartId = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const employee = await Employee.find({ departmentId: id })
+
+  const employee = await Employee.find({ role: { $ne: "ADMIN" },
+    departmentId: id })
     .select("-password")
     .populate("departmentId", "name");
   if (!employee) {
@@ -223,13 +226,335 @@ const statusChange = asyncHandler(async (req, res) => {
     );
 });
 
+// const getAllBreaks = asyncHandler(async (req, res) => {
+//   const { userId, status, type, attendanceId, startDate, endDate } = req.query;
+//   const { roleFilter } = req;
+
+//   let matchStage = {};
+//   if (userId) matchStage.userId = new mongoose.Types.ObjectId(userId);
+//   if (status) matchStage.status = status;
+//   if (type) matchStage.type = type;
+//   if (attendanceId)
+//     matchStage.attendanceId = new mongoose.Types.ObjectId(attendanceId);
+
+//   if (startDate || endDate) {
+//     matchStage.breakIn = {};
+//     if (startDate) matchStage.breakIn.$gte = new Date(startDate);
+//     if (endDate) {
+//       const end = new Date(endDate);
+//       end.setHours(23, 59, 59, 999);
+//       matchStage.breakIn.$lte = end;
+//     }
+//   }
+
+//   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+//   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+//   const skip = (page - 1) * limit;
+
+//   const pipeline = [];
+
+//   pipeline.push({ $match: matchStage });
+
+//   pipeline.push({
+//     $lookup: {
+//       from: "employees", 
+//       localField: "userId",
+//       foreignField: "_id",
+//       as: "employeeInfo",
+//     },
+//   });
+
+//   pipeline.push({ $unwind: "$employeeInfo" });
+
+//   // 4. Role Based Filter (Logic based on your existing middleware)
+//   if (roleFilter && Object.keys(roleFilter).length > 0) {
+//     // Agar DEP_ADMIN hai to middleware departmentId bhej raha hoga
+//     if (roleFilter.departmentId) {
+//       pipeline.push({
+//         $match: {
+//           "employeeInfo.departmentId": new mongoose.Types.ObjectId(
+//             roleFilter.departmentId,
+//           ),
+//         },
+//       });
+//     }
+//     // Agar sirf USER restriction hai
+//     if (roleFilter.userId) {
+//       pipeline.push({
+//         $match: { userId: new mongoose.Types.ObjectId(roleFilter.userId) },
+//       });
+//     }
+//   }
+
+//   // 5. Total Count for Pagination
+//   const totalRecords = await Break.aggregate([
+//     ...pipeline,
+//     { $count: "total" },
+//   ]);
+//   const total = totalRecords.length > 0 ? totalRecords[0].total : 0;
+//   const totalPages = Math.max(Math.ceil(total / limit), 1);
+
+//   // 6. Final Results (Sorting & Pagination)
+//   pipeline.push({ $sort: { createdAt: -1 } });
+//   pipeline.push({ $skip: skip });
+//   pipeline.push({ $limit: limit });
+
+//   // Attendance join
+//   pipeline.push({
+//     $lookup: {
+//       from: "attendances",
+//       localField: "attendanceId",
+//       foreignField: "_id",
+//       as: "attendanceId",
+//     },
+//   });
+//   pipeline.push({
+//     $unwind: { path: "$attendanceId", preserveNullAndEmptyArrays: true },
+//   });
+
+//   const breaks = await Break.aggregate(pipeline);
+
+//   // Cleanup: Data ko wapis purane format (userId object) mein convert karna
+//   const formattedBreaks = breaks.map((b) => ({
+//     ...b,
+//     userId: {
+//       _id: b.employeeInfo._id,
+//       fullName: b.employeeInfo.fullName,
+//       email: b.employeeInfo.email,
+//       designation: b.employeeInfo.designation,
+//     },
+//   }));
+
+//   const meta = {
+//     total,
+//     page,
+//     limit,
+//     totalPages,
+//     hasNext: page < totalPages,
+//     hasPrevious: page > 1,
+//   };
+
+//   return res
+//     .status(200)
+//     .json(
+//       new ApiResponse(
+//         200,
+//         { items: formattedBreaks, meta },
+//         "Breaks fetched successfully",
+//       ),
+//     );
+// });
+
+
+const getAllBreaks = asyncHandler(async (req, res) => {
+  const { userId, status, type, startDate, endDate } = req.query;
+  const { roleFilter } = req;
+
+  let globalMatchStage = {};
+  if (userId) globalMatchStage.userId = new mongoose.Types.ObjectId(userId);
+
+  if (startDate || endDate) {
+    globalMatchStage.shiftDate = {};
+    if (startDate) globalMatchStage.shiftDate.$gte = startDate.toString().trim();
+    if (endDate) globalMatchStage.shiftDate.$lte = endDate.toString().trim();
+  }
+
+  let tableMatchStage = {};
+  if (status) tableMatchStage.status = status;
+  if (type) tableMatchStage.type = type;
+
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+  const skip = (page - 1) * limit;
+
+  // Base Pipeline jahan sirf global filters aur lookups lag rha hy
+  const basePipeline = [];
+  basePipeline.push({ $match: globalMatchStage });
+
+  basePipeline.push({
+    $lookup: {
+      from: "employees",
+      localField: "userId",
+      foreignField: "_id",
+      as: "employeeInfo",
+    },
+  });
+  basePipeline.push({ $unwind: "$employeeInfo" });
+
+  if (roleFilter && Object.keys(roleFilter).length > 0) {
+    if (roleFilter.departmentId) {
+      basePipeline.push({
+        $match: { "employeeInfo.departmentId": new mongoose.Types.ObjectId(roleFilter.departmentId) },
+      });
+    }
+    if (roleFilter.userId) {
+      basePipeline.push({
+        $match: { userId: new mongoose.Types.ObjectId(roleFilter.userId) },
+      });
+    }
+  }
+
+  const aggregationResult = await Break.aggregate([
+    ...basePipeline,
+    {
+      $facet: {
+        typeStats: [
+          {
+            $group: {
+              _id: "$type",
+              count: { $sum: 1 },
+            },
+          },
+        ],
+        liveStats: [
+          { $match: { status: "break-in" } },
+          { $count: "count" }
+        ],
+        paginatedData: [
+          { $match: tableMatchStage }, 
+          { $sort: { createdAt: -1 } },
+          { $skip: skip },
+          { $limit: limit }
+        ],
+        filteredTotalCount: [
+          { $match: tableMatchStage }, 
+          { $count: "count" }
+        ],
+        absoluteTotalCount: [
+          { $count: "count" }
+        ]
+      }
+    }
+  ]);
+
+  const facetResult = aggregationResult[0];
+  
+  const totalFiltered = facetResult.filteredTotalCount[0]?.count || 0; 
+  const totalAbsolute = facetResult.absoluteTotalCount[0]?.count || 0; 
+  const totalPages = Math.max(Math.ceil(totalFiltered / limit), 1);
+  const rawBreaks = facetResult.paginatedData || [];
+  const rawStats = facetResult.typeStats || [];
+  const liveCount = facetResult.liveStats[0]?.count || 0;
+
+  // 🛠️ INITIALIZE DEFAULT STATS
+  const stats = {
+    TOTAL_ALL: totalAbsolute, 
+    LIVE: liveCount,     
+    MEAL: 0,
+    SMOKING: 0,
+    PRAYER: 0,
+    TEA: 0,
+    OFFICIAL: 0,
+    "REST ROOM": 0,
+    "SYSTEM IDLE": 0
+  };
+
+  rawStats.forEach(item => {
+    if (item._id) {
+      const typeKey = item._id.toString().trim();
+      stats[typeKey] = item.count;
+    }
+  });
+
+  const formattedBreaks = rawBreaks.map((b) => ({
+    ...b,
+    userId: {
+      _id: b.employeeInfo._id,
+      fullName: b.employeeInfo.fullName,
+      email: b.employeeInfo.email,
+      designation: b.employeeInfo.designation,
+    },
+  }));
+
+  const meta = {
+    total: totalFiltered, 
+    page,
+    limit,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrevious: page > 1,
+  };
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { items: formattedBreaks, stats, meta },
+      "Breaks, persistent stats and dynamic pagination fetched successfully",
+    ),
+  );
+});
+
+const getMyBreak = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const filters = { userId: req.user._id };
+  const { status, type, startDate, endDate } = req.query;
+
+  if (status) filters.status = status;
+  if (type) filters.type = type;
+
+  // 👈 FIX: shiftDate dynamic filters conversion for plain Mongoose lookup
+  if (startDate || endDate) {
+    filters.shiftDate = {};
+    if (startDate) {
+      filters.shiftDate.$gte = startDate.toString().trim();
+    }
+    if (endDate) {
+      filters.shiftDate.$lte = endDate.toString().trim();
+    }
+  }
+
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+  const skip = (page - 1) * limit;
+  
+  const total = await Break.countDocuments(filters);
+  const totalPages = Math.max(Math.ceil(total / limit), 1);
+
+  const breaks = await Break.find(filters)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate("userId", "fullName designation ");
+
+  const meta = {
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrevious: page > 1,
+    nextPage: page < totalPages ? page + 1 : null,
+    previousPage: page > 1 ? page - 1 : null,
+  };
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { items: breaks, meta },
+      "Your break records fetched successfully",
+    ),
+  );
+});
+
 const breakIn = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { attendanceId } = req.body;
-  console.log(attendanceId, "attendanceId");
+  const { shiftDate, type, reason } = req.body;
 
-  if (!attendanceId) {
-    throw new ApiError(400, "Attendance ID is required to start a break");
+  if (!shiftDate) {
+    throw new ApiError(400, "Shift date is required to start a break");
+  }
+
+  const activeBreaksCount = await Break.countDocuments({
+    breakOut: null,
+    shiftDate
+  });
+
+
+  if (activeBreaksCount >= 3) {
+    throw new ApiError(
+      400,
+      "Please wait, 3 employees are already on break. Try again after some time.",
+    );
   }
 
   const employee = await Employee.findById(userId);
@@ -238,52 +563,51 @@ const breakIn = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Employee not found");
   }
 
-  if (employee.activityStatus === "idle") {
+  if (employee.activityStatus !== "active") {
     return res.status(200).json(new ApiResponse(200, {}, "Already on break."));
   }
 
-  employee.activityStatus = "idle";
-  employee.lastBreakInTime = new Date();
-  await employee.save();
-
   const existingBreak = await Break.findOne({
     userId,
-    attendanceId,
+    shiftDate,
     breakOut: null,
   });
 
   if (existingBreak) {
-    throw new ApiError(400, "A break is already active in records.");
+    throw new ApiError(400, "Already on break. Close previous break first.");
   }
 
   const newLog = await Break.create({
     userId,
-    attendanceId,
+    shiftDate,
+    type,
+    reason,
     breakIn: new Date(),
     status: "break-in",
   });
 
-  console.log(`Activity: User ${employee.fullName} is now IDLE`);
+  employee.activityStatus = type === "SYSTEM IDLE" ? "idle" : "break";
+  employee.lastBreakInTime = new Date();
+  await employee.save();
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
         activityStatus: employee.activityStatus,
-        lastBreakInTime: employee.lastBreakInTime,
         breakRecord: newLog,
       },
-      "Break-In registered successfully",
+      "Break started successfully",
     ),
   );
 });
 
 const breakOut = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { attendanceId } = req.body;
+  const { shiftDate } = req.body;
 
-  if (!attendanceId) {
-    throw new ApiError(400, "Attendance ID is required for break-out.");
+  if (!shiftDate) {
+    throw new ApiError(400, "Shift date is required for break-out.");
   }
 
   const employee = await Employee.findById(userId);
@@ -296,13 +620,11 @@ const breakOut = asyncHandler(async (req, res) => {
 
   const openBreak = await Break.findOne({
     userId,
-    attendanceId,
+    shiftDate,
     breakOut: null,
   }).sort({ createdAt: -1 });
 
   if (!openBreak) {
-    employee.activityStatus = "active";
-    await employee.save();
     return res
       .status(200)
       .json(
@@ -315,47 +637,53 @@ const breakOut = asyncHandler(async (req, res) => {
   }
 
   const now = new Date();
-  const diffInMs = now - openBreak.breakIn;
-  const diffInMins = Math.round(diffInMs / 60000);
+  const diffInMins = Math.round((now - openBreak.breakIn) / 60000);
 
   openBreak.breakOut = now;
-  openBreak.status = "break-out";
   openBreak.duration = diffInMins;
+  openBreak.status = "break-out";
   await openBreak.save();
 
-  const updatedAttendance = await Attendance.findByIdAndUpdate(
-    attendanceId,
-    {
-      $inc: { totalBreakMinutes: diffInMins },
-    },
+  const allBreaks = await Break.find({
+    shiftDate,  
+    userId,
+    type: { $ne: "OFFICIAL" },
+  });
+
+  const totalCalculatedMinutes = allBreaks.reduce(
+    (sum, b) => sum + (b.duration || 0),
+    0,
+  );
+
+  const updatedAttendance = await Attendance.findOneAndUpdate(
+    { shiftDate, employeeId: userId },
+    { totalBreakMinutes: totalCalculatedMinutes },
     { new: true },
   );
-  console.log(
-    updatedAttendance.totalBreakMinutes,
-    "updatedAttendance?.totalBreakMinutes",
-  );
-  if (updatedAttendance.totalBreakMinutes > 60) {
+
+  const privilegedRoles = ["ADMIN", "SUBADMIN"];
+
+  if (
+    updatedAttendance.totalBreakMinutes > 90 &&
+    openBreak.type !== "OFFICIAL" &&
+    !privilegedRoles.includes(employee.role)
+  ) {
     employee.status = "de active";
+    await employee.save();
   }
+
   employee.activityStatus = "active";
   employee.lastBreakInTime = null;
   await employee.save();
-
-  console.log(
-    `Activity: User ${employee.fullName} is now ACTIVE. Break Duration: ${diffInMins} mins.`,
-  );
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        activityStatus: "active",
-        lastBreakInTime: null,
         breakDuration: diffInMins,
-        ...(updatedAttendance.totalBreakMinutes > 60 && { mustLogout: true }),
-        totalBreakMinutesInShift: await Attendance.findById(attendanceId).then(
-          (a) => a.totalBreakMinutes,
-        ),
+        totalBreakMinutes: updatedAttendance.totalBreakMinutes,
+        ...(updatedAttendance.totalBreakMinutes > 90 &&
+          openBreak.type !== "OFFICIAL" && { mustLogout: true }),
       },
       `Break-Out successfully. Duration: ${diffInMins} minutes.`,
     ),
@@ -369,7 +697,235 @@ export {
   deleteEmployee,
   getEmployeeById,
   getEmployeesByDepartId,
+  getAllBreaks,
+  getMyBreak,
   statusChange,
   breakIn,
   breakOut,
 };
+
+
+// const getAllBreaks = asyncHandler(async (req, res) => {
+//   const { userId, status, type, attendanceId, startDate, endDate } = req.query;
+//   const { roleFilter } = req;
+
+//   // 1. GLOBAL FILTERS (Jo stats aur data dono pr lagenge)
+//   let globalMatchStage = {};
+//   if (userId) globalMatchStage.userId = new mongoose.Types.ObjectId(userId);
+//   if (attendanceId) globalMatchStage.attendanceId = new mongoose.Types.ObjectId(attendanceId);
+
+//   if (startDate || endDate) {
+//     globalMatchStage.breakIn = {};
+//     if (startDate) globalMatchStage.breakIn.$gte = new Date(startDate);
+//     if (endDate) {
+//       const end = new Date(endDate);
+//       end.setHours(23, 59, 59, 999);
+//       globalMatchStage.breakIn.$lte = end;
+//     }
+//   }
+
+//   // 2. TABLE SPECIFIC FILTERS (Jo sirf table aur table k count ko filter krenge)
+//   let tableMatchStage = {};
+//   if (status) tableMatchStage.status = status;
+//   if (type) tableMatchStage.type = type;
+
+//   // Pagination bounds
+//   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+//   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+//   const skip = (page - 1) * limit;
+
+//   // Base Pipeline jahan sirf global filters aur lookups lag rha hy
+//   const basePipeline = [];
+//   basePipeline.push({ $match: globalMatchStage });
+
+//   basePipeline.push({
+//     $lookup: {
+//       from: "employees",
+//       localField: "userId",
+//       foreignField: "_id",
+//       as: "employeeInfo",
+//     },
+//   });
+//   basePipeline.push({ $unwind: "$employeeInfo" });
+
+//   // Role Based Filters
+//   if (roleFilter && Object.keys(roleFilter).length > 0) {
+//     if (roleFilter.departmentId) {
+//       basePipeline.push({
+//         $match: { "employeeInfo.departmentId": new mongoose.Types.ObjectId(roleFilter.departmentId) },
+//       });
+//     }
+//     if (roleFilter.userId) {
+//       basePipeline.push({
+//         $match: { userId: new mongoose.Types.ObjectId(roleFilter.userId) },
+//       });
+//     }
+//   }
+
+//   // =================================================================
+//   // 🚀 FACET PIPELINE WITH ISOLATED TABLE FILTERS
+//   // =================================================================
+//   const aggregationResult = await Break.aggregate([
+//     ...basePipeline,
+//     {
+//       $facet: {
+//         // Pipeline 1: Global Stats (Isme tableMatchStage nahi chalayein ge)
+//         typeStats: [
+//           {
+//             $group: {
+//               _id: "$type",
+//               count: { $sum: 1 },
+//             },
+//           },
+//         ],
+//         // Pipeline 2: Global Live Count (Isme bhi table filters touch nahi honge)
+//         liveStats: [
+//           { $match: { status: "break-in" } },
+//           { $count: "count" }
+//         ],
+//         // Pipeline 3: Paginated Table Data (Yahan tableMatchStage apply hoga)
+//         paginatedData: [
+//           { $match: tableMatchStage }, // 👈 Table specific filters (type/status) yahan isolate kr diye
+//           { $sort: { createdAt: -1 } },
+//           { $skip: skip },
+//           { $limit: limit },
+//           {
+//             $lookup: {
+//               from: "attendances",
+//               localField: "attendanceId",
+//               foreignField: "_id",
+//               as: "attendanceId",
+//             },
+//           },
+//           { $unwind: { path: "$attendanceId", preserveNullAndEmptyArrays: true } },
+//         ],
+//         // Pipeline 4: Filtered Total Count (Pagination calculations k liye)
+//         filteredTotalCount: [
+//           { $match: tableMatchStage }, // 👈 Table filters yahan bhi lgenge taake pagination size accurate rhe
+//           { $count: "count" }
+//         ],
+//         // Pipeline 5: Absolute Total (Bina table filters k total card k liye)
+//         absoluteTotalCount: [
+//           { $count: "count" }
+//         ]
+//       }
+//     }
+//   ]);
+
+//   const facetResult = aggregationResult[0];
+  
+//   // Extraction
+//   const totalFiltered = facetResult.filteredTotalCount[0]?.count || 0; // Filtered records for table pagination
+//   const totalAbsolute = facetResult.absoluteTotalCount[0]?.count || 0; // Absolute total for cards
+//   const totalPages = Math.max(Math.ceil(totalFiltered / limit), 1);
+//   const rawBreaks = facetResult.paginatedData || [];
+//   const rawStats = facetResult.typeStats || [];
+//   const liveCount = facetResult.liveStats[0]?.count || 0;
+
+//   // =================================================================
+//   // 🛠️ INITIALIZE DEFAULT STATS (Hamesha real absolute total dikhayega)
+//   // =================================================================
+//   const stats = {
+//     TOTAL_ALL: totalAbsolute, // 👈 Yeh ab type select karne pr bhi change nahi hoga!
+//     LIVE: liveCount,     
+//     MEAL: 0,
+//     SMOKING: 0,
+//     PRAYER: 0,
+//     "REST ROOM": 0,
+//     "SYSTEM IDLE": 0
+//   };
+
+//   rawStats.forEach(item => {
+//     if (item._id) {
+//       const typeKey = item._id.toString().trim();
+//       stats[typeKey] = item.count;
+//     }
+//   });
+
+//   // Formatting output array
+//   const formattedBreaks = rawBreaks.map((b) => ({
+//     ...b,
+//     userId: {
+//       _id: b.employeeInfo._id,
+//       fullName: b.employeeInfo.fullName,
+//       email: b.employeeInfo.email,
+//       designation: b.employeeInfo.designation,
+//     },
+//   }));
+
+//   const meta = {
+//     total: totalFiltered, // Table me kitne items hain actual pagination k liye
+//     page,
+//     limit,
+//     totalPages,
+//     hasNext: page < totalPages,
+//     hasPrevious: page > 1,
+//   };
+
+//   return res.status(200).json(
+//     new ApiResponse(
+//       200,
+//       { 
+//         items: formattedBreaks, 
+//         stats, 
+//         meta 
+//       },
+//       "Breaks, persistent stats and dynamic pagination fetched successfully",
+//     ),
+//   );
+// });
+
+// const getMyBreak = asyncHandler(async (req, res) => {
+//   const userId = req.user._id;
+//   const filters = { userId: req.user._id };
+//   const { status, type, startDate, endDate } = req.query;
+
+//   if (status) filters.status = status;
+//   if (type) filters.type = type;
+
+//   if (startDate || endDate) {
+//     filters.breakIn = {};
+//     if (startDate) {
+//       filters.breakIn.$gte = new Date(startDate);
+//     }
+//     if (endDate) {
+//       const end = new Date(endDate);
+//       end.setHours(23, 59, 59, 999);
+//       filters.breakIn.$lte = end;
+//     }
+//   }
+
+//   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+//   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+//   const skip = (page - 1) * limit;
+//   const total = await Break.countDocuments(filters);
+//   const totalPages = Math.max(Math.ceil(total / limit), 1);
+
+//   const breaks = await Break.find(filters)
+//     .sort({ createdAt: -1 })
+//     .skip(skip)
+//     .limit(limit)
+//     .populate("attendanceId", "shiftDate")
+//     .populate("userId", "fullName designation ");
+
+//   const meta = {
+//     total,
+//     page,
+//     limit,
+//     totalPages,
+//     hasNext: page < totalPages,
+//     hasPrevious: page > 1,
+//     nextPage: page < totalPages ? page + 1 : null,
+//     previousPage: page > 1 ? page - 1 : null,
+//   };
+
+//   return res
+//     .status(200)
+//     .json(
+//       new ApiResponse(
+//         200,
+//         { items: breaks, meta },
+//         "Your break records fetched successfully",
+//       ),
+//     );
+// });

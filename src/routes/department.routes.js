@@ -8,8 +8,8 @@ const router=Router();
 
 router.use(verifyJWT)
 
-router.route('/').get(checkRole("ADMIN",'SUBADMIN','USER'),getAllDepartments)
-router.route('/add').post(adminVerify,createDepartment)
-router.route('/:id').patch(adminVerify,updateDepartment).delete(adminVerify,deleteDepartment).get(getDepartmentById)
+router.route('/').get(getAllDepartments)
+router.route('/add').post(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),createDepartment)
+router.route('/:id').patch(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),updateDepartment).delete(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),deleteDepartment).get(getDepartmentById)
 
 export default router   

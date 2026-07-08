@@ -33,7 +33,9 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
   try {
     const token =
       req.cookies?.accessToken ||
-      req.header("Authorization")?.replace("Bearer ", "");
+      req.header("Authorization")?.replace("Bearer ", "") ||
+      // Fallback for attachment proxy (blob fetch may not send cookies on localhost)
+      (req.originalUrl?.includes("/attachment/proxy") ? req.query.token : null);
 
     if (!token) {
       throw new ApiError(401, "Unauthorized request");

@@ -7,14 +7,14 @@ const clientSchema = new Schema(
       ref: "Department",
       required: true,
     },
-    handleBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Employee",
-      required: true,
-    },
     brandId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Brand",
+      // required: true,
+    },
+    handleBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Employee",
       required: true,
     },
     name: {
@@ -26,18 +26,18 @@ const clientSchema = new Schema(
     },
     companyName: {
       type: String,
-      lowercase: true,
       trim: true,
       index: true,
     },
 
     email: {
       type: String,
-      //   required: true,
+      required: true,
       unique: true,
       lowercase: true,
       trim: true,
     },
+    serialNo: { type: String, trim: true },
 
     address: {
       street: String,
@@ -48,10 +48,22 @@ const clientSchema = new Schema(
     phoneNo: { type: String, required: true },
     signupType: {
       type: String,
-      enum: ["cold", "PPC", "chat", "email", "facebook", "other"],
+      enum: [
+        "cold",
+        "PPC",
+        "chat",
+        "email",
+        "google",
+        "facebook",
+        "USPTO",
+        "meta",
+        "instagram",
+        "linkedin",
+        "twitter",
+        "other",
+      ],
       default: "other",
     },
-
     image: {
       type: String,
       //   required: true,
@@ -63,7 +75,14 @@ const clientSchema = new Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
+
+// Client delete hone par uska project aur us project ke tasks auto-delete
+clientSchema.pre("findOneAndDelete", async function (next) {
+  const clientId = this.getQuery()["_id"];
+  await mongoose.model("Project").findOneAndDelete({ clientId });
+  next();
+});
 
 export const Client = mongoose.model("Client", clientSchema);

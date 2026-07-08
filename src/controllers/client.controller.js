@@ -1,4 +1,5 @@
 import { Client } from "../models/client.model.js";
+import { Project } from "../models/project.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -58,6 +59,18 @@ const createClient = asyncHandler(async (req, res) => {
     throw new ApiError("500", "internel server error");
   }
 
+  // Auto-create a linked project for this client
+  try {
+    await Project.create({
+      clientId: client._id,
+      name: companyName || name,
+      description: `Project for ${name}`,
+      createdBy: req.user?._id,
+    });
+  } catch (_) {
+    // project creation failure should not block client creation
+  }
+
   return res
     .status(201)
     .json(new ApiResponse(201, client, "Client Created Successfully"));
@@ -87,7 +100,6 @@ const updateClient = asyncHandler(async (req, res) => {
 
   const ClientData = {
     name,
-
     phoneNo,
     email,
     departmentId,
@@ -154,7 +166,7 @@ const getClientById = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Client not found");
     // return res.status(404).json({ error: 'Client not found' });
   }
-  return res.status(200).json(new ApiResponse(200, Client, "Client Found"));
+  return res.status(200).json(new ApiResponse(200, client, "Client Found"));
 });
 
 const getClientByDepartId = asyncHandler(async (req, res) => {

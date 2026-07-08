@@ -12,7 +12,7 @@ const leadSchema = new Schema(
       ref: "Brand",
       //   required: true,
     },
-    // agent: { type: Schema.Types.ObjectId, ref: "Employee" },
+    agent: { type: Schema.Types.ObjectId, ref: "Employee" },
     name: {
       type: String,
       lowercase: true,
@@ -47,12 +47,6 @@ const leadSchema = new Schema(
       ],
       default: "no action",
     },
-
-    // lastActionDate: { type: Date },
-    // scheduleDate: { type: Date },
-    // loopFromDate: { type: Date },
-    // loopToDate: { type: Date },
-    // lastComment: { type: String },
 
     signupDate: { type: Date, default: Date.now },
     paidStatus: {

@@ -7,6 +7,7 @@ dotenv.config({
     path: './.env'
 })
 
+
 // UNHANDLED ERRORS KO CATCH KARNE KE LIYE
 process.on('unhandledRejection', (reason, promise) => {
   console.error('CRITICAL UNHANDLED REJECTION:', reason.message || reason);
@@ -22,7 +23,7 @@ process.on('uncaughtException', (err) => {
 connectDB()
 .then(() => {
     app.listen(process.env.PORT , () => {
-        console.log(`⚙️ Server is running at port :${process.env.PORT || 8080}`);
+        console.log(`⚙️ Server is running at port :${process.env.PORT}`);
     })
 })
 .catch((err) => {

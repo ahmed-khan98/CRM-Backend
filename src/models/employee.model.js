@@ -46,12 +46,18 @@ const employeeSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ["USER", "ADMIN", "SUBADMIN"],
+      enum: ["USER", "ADMIN", "SUBADMIN","DEP_ADMIN","HR_ADMIN","FINANCE_ADMIN"],
       default: "USER",
+    },
+      shiftStart: {
+      type: String,
+    },
+    shiftEnd: {
+      type: String,
     },
     activityStatus: {
       type: String,
-      enum: ["active", "idle"],
+      enum: ["active", "idle",'break'],
       default: "active",
     },
     lastBreakInTime: {
@@ -64,6 +70,7 @@ const employeeSchema = new Schema(
     refreshToken: {
       type: String,
     },
+  
     resetToken: String,
     resetTokenExpires: Date,
 

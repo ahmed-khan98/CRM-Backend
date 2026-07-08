@@ -4,8 +4,13 @@ import { Employee } from "../models/employee.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { adjustForMidnight, getAttendanceStatus, nowInPKT, resolveFinalStatus, TZ } from "../utils/attendence/index.js";
-
+import {
+  adjustForMidnight,
+  getAttendanceStatus,
+  nowInPKT,
+  resolveFinalStatus,
+  TZ,
+} from "../utils/attendence/index.js";
 
 const TimeIn = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.user._id);
@@ -16,10 +21,10 @@ const TimeIn = asyncHandler(async (req, res) => {
   const nowPKT = nowInPKT();
   const currentHour = nowPKT.hour();
 
-  if (currentHour >= 8 && currentHour < 20)
+  if (currentHour >= 6 && currentHour < 19)
     throw new ApiError(
       400,
-      "Shift timing has not started yet. You can only Time-In after 08:00 PM.",
+      "Shift timing has not started yet. You can only Time-In after 07:00 PM.",
     );
 
   // Midnight logic: 12AM–6AM → assign to previous date
@@ -43,7 +48,7 @@ const TimeIn = asyncHandler(async (req, res) => {
     employeeId: req.user._id,
     shiftDate,
     timeIn: nowPKT.toDate(),
-    status: getAttendanceStatus(nowPKT, employee.shiftStart),
+    status: getAttendanceStatus(nowPKT, employee.shiftStart, shiftDate),
     lastActivity: nowPKT.toDate(),
   });
 
@@ -61,46 +66,72 @@ const updateOrMarkAttendance = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) throw new ApiError(404, "Employee not found");
 
-  const parsePKT = (timeStr) =>
-    moment.tz(`${shiftDate} ${timeStr}`, "YYYY-MM-DD hh:mm A", "Asia/Karachi");
+ const parsePKT = (timeStr) => {
+    // Pehle 14 April 01:10 AM parse hua
+    let m = moment.tz(
+      `${shiftDate} ${timeStr}`,
+      "YYYY-MM-DD HH:mm",
+      "Asia/Karachi",
+    );
+
+    // 👈 Fix : Agar waqt 12AM se 7AM ke darmiyan hai
+    if (m.hour() >= 0 && m.hour() < 7) {
+      // Isay 14 April se 15 April 01:10 AM kar do
+      m.add(1, "days");
+    }
+    return m;
+  };
 
   let updateData = {};
 
   if (timeIn) {
     const timeInMoment = parsePKT(timeIn);
-    const status = getAttendanceStatus(timeInMoment, employee.shiftStart);
+    const status = getAttendanceStatus(
+      timeInMoment,
+      employee.shiftStart,
+      shiftDate,
+    );
+    console.log(status, "status");
     updateData.timeIn = adjustForMidnight(timeInMoment).toISOString();
     updateData.status = status;
   }
 
+
   if (timeOut) {
     const timeOutMoment = parsePKT(timeOut);
-    console.log(adjustForMidnight(timeOutMoment).toISOString(), "timeOutMoment");
-    updateData.timeOut = adjustForMidnight(timeOutMoment).toISOString();
 
-    // timeOut ke waqt final status recalculate karo
-    // Pehle existing timeIn fetch karo agar is request mein timeIn nahi aaya
+    // Yahan fix hai: TimeIn ko pehle handle karein
     let timeInMoment;
     if (timeIn) {
       timeInMoment = parsePKT(timeIn);
     } else {
       const existing = await Attendance.findOne({ employeeId, shiftDate });
       if (!existing?.timeIn)
-        throw new ApiError(
-          400,
-          "TimeIn record not found. Cannot calculate status.",
-        );
+        throw new ApiError(400, "TimeIn record not found.");
       timeInMoment = moment(existing.timeIn).tz(TZ);
     }
 
-    const baseStatus = getAttendanceStatus(timeInMoment, employee.shiftStart);
+    // Ab timeOut ki date ko adjust karein agar wo subah ka waqt hai
+    let finalTimeOut = timeOutMoment.clone();
+    if (finalTimeOut.isBefore(timeInMoment)) {
+      finalTimeOut.add(1, "days");
+    }
+
+    updateData.timeOut = finalTimeOut.toISOString();
+
+    const baseStatus = getAttendanceStatus(
+      timeInMoment,
+      employee.shiftStart,
+      shiftDate,
+    );
+
+    // Final Status calculate karte waqt adjusted moments bhejein
     updateData.status = resolveFinalStatus(
-      adjustForMidnight(timeInMoment),
-      adjustForMidnight(timeOutMoment),
+      timeInMoment,
+      finalTimeOut,
       baseStatus,
     );
   }
-
   const attendance = await Attendance.findOneAndUpdate(
     { employeeId, shiftDate },
     { $set: updateData },
@@ -121,13 +152,16 @@ const updateOrMarkAttendance = asyncHandler(async (req, res) => {
 const TimeOut = asyncHandler(async (req, res) => {
   const nowPKT = moment().tz(TZ);
 
-  // Pehle existing attendance fetch karo (timeIn chahiye status ke liye)
   const attendance = await Attendance.findOne(
     { employeeId: req.user._id, timeOut: null },
     null,
-    { sort: { createdAt: -1 } }
+    { sort: { createdAt: -1 } },
   );
- const   employee = await Employee.findByIdAndUpdate(attendance.employeeId);
+
+  const employee = await Employee.findById(attendance.employeeId);
+  if (employee?.status === "de active") {
+    throw new ApiError(403, "You are deactivated. Cannot Time-Out.");
+  }
 
   if (!attendance) throw new ApiError(404, "No active shift found");
 
@@ -135,18 +169,22 @@ const TimeOut = asyncHandler(async (req, res) => {
     throw new ApiError(400, "TimeIn not found. Cannot calculate status.");
 
   const timeInMoment = moment(attendance.timeIn).tz(TZ);
-  const baseStatus = getAttendanceStatus(timeInMoment, attendance.shiftStart || employee?.shiftStart || process.env.SHIFT_START);
+  const baseStatus = getAttendanceStatus(
+    timeInMoment,
+   employee?.shiftStart || process.env.SHIFT_START,
+    attendance?.shiftDate,
+  );
   const finalStatus = resolveFinalStatus(timeInMoment, nowPKT, baseStatus);
 
   const updated = await Attendance.findByIdAndUpdate(
     attendance._id,
-    { 
-      $set: { 
-        timeOut: nowPKT.toDate(), 
-        status: finalStatus 
-      } 
+    {
+      $set: {
+        timeOut: nowPKT.toDate(),
+        status: finalStatus,
+      },
     },
-    { new: true }
+    { new: true },
   );
 
   return res
@@ -161,11 +199,10 @@ const getTodayUserAttendance = asyncHandler(async (req, res) => {
   // --- Wahi Logic: Shift Date nikalne ke liye ---
   let shiftDate = nowPKT.format("YYYY-MM-DD");
 
-  // Agar raat 12 AM se subah 6 AM ke darmiyan check kar raha hai,
-  if (currentHour >= 0 && currentHour < 6) {
+  // Agar raat 12 AM se subah 11 AM ke darmiyan check kar raha hai,
+  if (currentHour >= 0 && currentHour < 11) {
     shiftDate = nowPKT.clone().subtract(1, "days").format("YYYY-MM-DD");
   }
-  console.log(shiftDate, "shiftDate");
 
   // Database mein check karein ke is shiftDate ke liye entry hai?
   const attendance = await Attendance.findOne({
@@ -233,11 +270,14 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
   let query = {};
 
   // 1. Employees Filter
-  let employeeListQuery = { ...req.roleFilter,status : "active" }; 
+  let employeeListQuery = {
+    status: "active",
+    role: { $ne: "ADMIN" },
+    ...req.roleFilter,
+  };
   if (employeeId && employeeId !== "undefined" && employeeId !== "") {
-    employeeListQuery._id = employeeId
+    employeeListQuery._id = employeeId;
   }
-  console.log(employeeListQuery, "employeeListQuery");
 
   const employees = await Employee.find(employeeListQuery).select(
     "fullName designation",
@@ -285,7 +325,6 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
     (startDate && endDate && startDate === endDate) || (!startDate && !month);
 
   if (isSingleDay) {
-    // TODAY/SINGLE DAY: Saare employees dikhao (Present + Absent)
     finalData = employees.map((emp) => {
       const attendanceRecord = records.find(
         (r) => r.employeeId._id.toString() === emp._id.toString(),
@@ -297,7 +336,6 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
       };
     });
   } else {
-    // RANGE/MONTH VIEW: Sirf database ke valid records dikhao (2 Feb, 3 Feb etc.)
     finalData = records.map((r) => ({
       employeeId: r.employeeId, // Populated data directly from record
       record: r,
@@ -332,7 +370,6 @@ export {
   getAllEmployeeAttendance,
   updateOrMarkAttendance,
 };
-
 
 // const TimeIn = asyncHandler(async (req, res) => {
 //   const employee = await Employee.findById(req.user._id);
@@ -487,8 +524,6 @@ export {
 //       ),
 //     );
 // });
-
-
 
 // const TimeOut = asyncHandler(async (req, res) => {
 //   const nowPKT = moment().tz("Asia/Karachi").toDate();

@@ -16,31 +16,15 @@ const paymentLinkSchema = new mongoose.Schema(
     brandId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Brand",
-      required: true,
+      // required: true,
     },
     departmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Department",
       required: true,
     },
-    
-    name: {
-      type: String,
-      lowercase: true,
-      trim: true,
-      index: true,
-      // required: true,
-    },
 
-    email: {
-      type: String,
-      required: true,
-      lowercase: true,
-      trim: true,
-    },
-    phoneNo: { type: String, required: true,trim: true, },
-
-    description: { type: String,trim: true, },
+    description: { type: String, trim: true },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],
@@ -48,27 +32,44 @@ const paymentLinkSchema = new mongoose.Schema(
     },
     merchantType: {
       type: String,
-      enum: ["stripe", "Kinatech Business Solutions LLC", "Pay Kinetic","SA Pro Solution LLC"],
+      enum: ["stripe", "Kinatech Business Solutions LLC", "Augmentus"],
       required: true,
     },
     service: {
       type: [String],
       required: true,
     },
-
-    paypalOrderId: { type: String ,},
-    amount: { type: Number, required: true ,},
+    paypalOrderId: { type: String },
+    amount: { type: Number, required: true },
     currency: {
       type: String,
-      enum: ["USD", "PKR"],
+      enum: [
+        "USD", // US Dollar
+        "CAD", // Canadian Dollar
+        "AUD", // Australian Dollar
+        "EUR",
+      ],
       default: "USD",
     },
+    type: {
+      type: String,
+      enum: ["FRESH", "UP SELL"],
+      default: "FRESH",
+    },
+    agent: { type: mongoose.Schema.Types.ObjectId, ref: "Employee",  },
+    seller: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" ,required: true},
+    isActive: { type: Boolean, default: true },
+    isMasterPayemntLink: { type: Boolean, default: false },
     createdAt: {
       type: Date,
       default: Date.now,
     },
+    paidAt: {
+      type: Date,
+      default: null,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 paymentLinkSchema.plugin(mongooseAggregatePaginate);

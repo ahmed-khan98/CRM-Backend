@@ -11,11 +11,11 @@ router.use(verifyJWT)
 
 router.route('/todayUserAttendence').get(getTodayUserAttendance)
 router.route('/my-attendance').get(getMonthlyAttendance)
-router.route('/employee-attendance').get(checkRole("ADMIN",'SUBADMIN'),filterByRole,getAllEmployeeAttendance)
+router.route('/employee-attendance').get(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),filterByRole,getAllEmployeeAttendance)
 router.route('/time-in').post(TimeIn)
 router.route('/time-out').post(TimeOut)
-router.route('/update-team-attendance').post(checkRole("ADMIN",'SUBADMIN'),updateOrMarkAttendance)
-// router.route("/change-status/:id").patch(checkRole("ADMIN",'SUBADMIN'),statusChange)
+router.route('/update-team-attendance').post(checkRole("ADMIN","HR_ADMIN"),updateOrMarkAttendance)
+// router.route("/change-status/:id").patch(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),statusChange)
 
 
 

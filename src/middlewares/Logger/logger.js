@@ -30,18 +30,35 @@ export const logger = winston.createLogger({
   transports: [
     fileRotateTransport,
     errorFileTransport,
-  ],
-});
-
-// Console output only in development
-if (process.env.NODE_ENV !== "production") {
-  logger.add(
+    // 🔥 FIX: Console transport ko yahan direct add kar diya taake Production (VPS) aur Dev dono me live logs pm2 par dikhen!
     new winston.transports.Console({
       format: combine(
         colorize(),
-        timestamp(),
+        timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
         consoleFormat
       ),
     })
-  );
-}
+  ],
+});
+
+// export const logger = winston.createLogger({
+//   level: "info",
+//   format: combine(timestamp(), json()),
+//   transports: [
+//     fileRotateTransport,
+//     errorFileTransport,
+//   ],
+// });
+
+// // Console output only in development
+// if (process.env.NODE_ENV !== "production") {
+//   logger.add(
+//     new winston.transports.Console({
+//       format: combine(
+//         colorize(),
+//         timestamp(),
+//         consoleFormat
+//       ),
+//     })
+//   );
+// }

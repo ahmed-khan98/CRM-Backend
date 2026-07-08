@@ -6,11 +6,11 @@ const {
   PAYPAL1_CLIENT_SECRET,
   PAYPAL2_CLIENT_ID,
   PAYPAL2_CLIENT_SECRET,
-  PAYPAL3_CLIENT_ID,
-  PAYPAL3_CLIENT_SECRET,
+
 } = process.env;
 
 export async function generateAccessToken(merchantType) {
+  console.log("Generating Access Token for merchantType:", merchantType);
   let CLIENT_ID, CLIENT_SECRET;
 
   const type = merchantType?.trim();
@@ -18,13 +18,10 @@ export async function generateAccessToken(merchantType) {
   if (type === "Kinatech Business Solutions LLC") {
     CLIENT_ID = PAYPAL1_CLIENT_ID;
     CLIENT_SECRET = PAYPAL1_CLIENT_SECRET;
-  } else if (type === "Pay Kinetic") {
+  } else if (type === "Augmentus") {
     CLIENT_ID = PAYPAL2_CLIENT_ID;
     CLIENT_SECRET = PAYPAL2_CLIENT_SECRET;
-  } else if (type === "SA Pro Solution LLC") {
-    CLIENT_ID = PAYPAL3_CLIENT_ID;
-    CLIENT_SECRET = PAYPAL3_CLIENT_SECRET;
-  }
+  } 
 
   if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error(`MISSING_API_CREDENTIALS for ${merchantType}`);

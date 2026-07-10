@@ -30,18 +30,15 @@ const createClient = asyncHandler(async (req, res) => {
     throw new ApiError(409, "Client email already exists");
   }
 
-  const ClientImg = req.file;
-
-  if (!ClientImg) {
-    throw new ApiError(400, "Client Image is required");
+  let imageUrl;
+  if (req.file) {
+    const image = await uploadOnCloudinary(req.file, "PPI-Client");
+    if (!image?.url) {
+      throw new ApiError(400, "Client image is not uploaded");
+    }
+    imageUrl = image.url;
   }
 
-  const image = await uploadOnCloudinary(ClientImg, "PPI-Client");
-
-  if (!image.url) {
-    throw new ApiError(400, "Client image is not uploaded");
-  }
-  
   const client = await Client.create({
     name,
     phoneNo,
@@ -52,7 +49,7 @@ const createClient = asyncHandler(async (req, res) => {
     companyName,
     brandId,
     signupType,
-    image: image?.url,
+    ...(imageUrl && { image: imageUrl }),
   });
 
   if (!client) {

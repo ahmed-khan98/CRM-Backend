@@ -13,11 +13,11 @@ const router = Router();
 
 router.use(verifyJWT);
 
-router.route("/").get(getAllProjects).post(checkRole('ADMIN','SUBADMIN','DEP_ADMIN','FINANCE_ADMIN','HR_ADMIN'),createProject);
+router.route("/").get(getAllProjects).post(createProject);
 router
   .route("/:id")
   .get(getProjectById)
-  .patch(checkRole('ADMIN','SUBADMIN','DEP_ADMIN','FINANCE_ADMIN','HR_ADMIN'),updateProject)
+  .patch(updateProject)
   .delete(checkRole('ADMIN','SUBADMIN'),deleteProject);
 
 export default router;

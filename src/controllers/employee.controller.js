@@ -169,6 +169,21 @@ const getAllEmployees = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, employees, "All Employees found"));
 });
 
+// Unfiltered list for task/sale assignment — any authenticated user
+const getAssignees = asyncHandler(async (req, res) => {
+  const employees = await Employee.find({
+    role: { $ne: "ADMIN" },
+    status: { $ne: "block" },
+  })
+    .select("fullName image departmentId role status")
+    .sort({ fullName: 1 })
+    .populate("departmentId", "name");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, employees, "Assignees fetched successfully"));
+});
+
 const getEmployeeById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const employee = await Employee.findById(id)
@@ -693,6 +708,7 @@ const breakOut = asyncHandler(async (req, res) => {
 export {
   createEmployee,
   getAllEmployees,
+  getAssignees,
   updateEmployee,
   deleteEmployee,
   getEmployeeById,

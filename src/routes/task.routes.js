@@ -16,8 +16,11 @@ router.route("/all").get(getAllTasks);
 router.route("/project/:projectId").get(getTasksByProject);
 router.route("/attachment/proxy").get(proxyAttachment);
 
-router.route("/").post(upload.single("attachment"),checkRole('ADMIN','SUBADMIN','DEP_ADMIN','FINANCE_ADMIN','HR_ADMIN'), createTask);
-router.route("/:id").patch(upload.single("attachment"), checkRole('ADMIN','SUBADMIN','DEP_ADMIN','FINANCE_ADMIN','HR_ADMIN'), updateTask).delete(checkRole('ADMIN','SUBADMIN','DEP_ADMIN','FINANCE_ADMIN','HR_ADMIN'), deleteTask);
+router.route("/").post(upload.single("attachment"), createTask);
+router
+  .route("/:id")
+  .patch(upload.single("attachment"), updateTask)
+  .delete(checkRole("ADMIN", "SUBADMIN"), deleteTask);
 router.route("/:id/status").patch(updateTaskStatus);
 router.route("/:id/comment").post(addComment);
 router.route("/:id/comment/:commentId").delete(deleteComment);

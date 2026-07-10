@@ -1,11 +1,26 @@
+import mongoose from "mongoose";
 import { Project } from "../models/project.model.js";
 import { Task } from "../models/task.model.js";
-import { Employee } from "../models/employee.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  getAccessibleProjectIds,
+  isAdmin,
+} from "../utils/taskVisibility.js";
 
-const ADMIN_ROLES = ["ADMIN", "SUBADMIN"];
+const EMPTY_TASK_COUNTS = { todo: 0, "in-progress": 0, "in-review": 0, done: 0, total: 0 };
+
+const projectPopulate = [
+  {
+    path: "clientId",
+    select: "name companyName email image departmentId",
+    populate: { path: "departmentId", select: "name" },
+  },
+  { path: "createdBy", select: "fullName image" },
+];
+
+const populateProject = (query) => query.populate(projectPopulate);
 
 // GET all projects — with task counts + visibility filtering
 const getAllProjects = asyncHandler(async (req, res) => {
@@ -13,49 +28,42 @@ const getAllProjects = asyncHandler(async (req, res) => {
   const userRole = req.user.role?.toUpperCase();
   const userDeptId = req.user.departmentId?.toString();
 
-  let projects = await Project.find()
-    .populate({ path: "clientId", select: "name companyName email image departmentId", populate: { path: "departmentId", select: "name" } })
-    .populate("createdBy", "fullName image")
-    .sort({ createdAt: -1 });
+  const allowedIds = await getAccessibleProjectIds(userId, userRole, userDeptId);
 
-  // Visibility: non-admin only see projects where they have tasks
-  if (!ADMIN_ROLES.includes(userRole)) {
-    let allowedProjectIds;
-
-    if (userRole === "DEP_ADMIN") {
-      const deptEmps = await Employee.find({ departmentId: userDeptId }).select("_id");
-      const deptIds = [userId, ...deptEmps.map((e) => e._id)];
-      const deptTasks = await Task.find({
-        $or: [{ createdBy: { $in: deptIds } }, { assignees: { $elemMatch: { $in: deptIds } } }],
-      }).select("projectId");
-      allowedProjectIds = new Set(deptTasks.map((t) => t.projectId?.toString()).filter(Boolean));
-    } else {
-      const userTasks = await Task.find({
-        $or: [{ createdBy: userId }, { assignees: userId }],
-      }).select("projectId");
-      allowedProjectIds = new Set(userTasks.map((t) => t.projectId?.toString()).filter(Boolean));
-    }
-
-    projects = projects.filter((p) => allowedProjectIds.has(p._id.toString()));
+  // Non-admin with no accessible projects
+  if (Array.isArray(allowedIds) && allowedIds.length === 0) {
+    return res.status(200).json(new ApiResponse(200, [], "Projects fetched successfully"));
   }
 
-  // Aggregate task counts per project
-  const taskCounts = await Task.aggregate([
-    { $match: { projectId: { $in: projects.map((p) => p._id) } } },
-    { $group: { _id: { projectId: "$projectId", status: "$status" }, count: { $sum: 1 } } },
-  ]);
+  const filter =
+    allowedIds === null
+      ? {}
+      : { _id: { $in: allowedIds.map((id) => new mongoose.Types.ObjectId(id)) } };
+
+  const projects = await populateProject(
+    Project.find(filter).sort({ createdAt: -1 })
+  ).lean();
+
+  const projectObjectIds = projects.map((p) => p._id);
+
+  const taskCounts = projectObjectIds.length
+    ? await Task.aggregate([
+        { $match: { projectId: { $in: projectObjectIds } } },
+        { $group: { _id: { projectId: "$projectId", status: "$status" }, count: { $sum: 1 } } },
+      ])
+    : [];
 
   const countsMap = {};
   taskCounts.forEach(({ _id, count }) => {
     const pid = _id.projectId.toString();
-    if (!countsMap[pid]) countsMap[pid] = { todo: 0, "in-progress": 0, "in-review": 0, done: 0, total: 0 };
+    if (!countsMap[pid]) countsMap[pid] = { ...EMPTY_TASK_COUNTS };
     countsMap[pid][_id.status] = count;
     countsMap[pid].total += count;
   });
 
   const result = projects.map((p) => ({
-    ...p.toObject(),
-    taskCounts: countsMap[p._id.toString()] || { todo: 0, "in-progress": 0, "in-review": 0, done: 0, total: 0 },
+    ...p,
+    taskCounts: countsMap[p._id.toString()] || { ...EMPTY_TASK_COUNTS },
   }));
 
   return res.status(200).json(new ApiResponse(200, result, "Projects fetched successfully"));
@@ -64,11 +72,22 @@ const getAllProjects = asyncHandler(async (req, res) => {
 // GET single project
 const getProjectById = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user._id;
+  const userRole = req.user.role?.toUpperCase();
+  const userDeptId = req.user.departmentId?.toString();
 
-  const project = await Project.findById(id)
-    .populate({ path: "clientId", select: "name companyName email image departmentId", populate: { path: "departmentId", select: "name" } })
-    .populate("createdBy", "fullName image");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(404, "Project not found");
+  }
 
+  if (!isAdmin(userRole)) {
+    const allowedIds = await getAccessibleProjectIds(userId, userRole, userDeptId);
+    if (!allowedIds.includes(id.toString())) {
+      throw new ApiError(404, "Project not found");
+    }
+  }
+
+  const project = await populateProject(Project.findById(id)).lean();
   if (!project) throw new ApiError(404, "Project not found");
 
   return res.status(200).json(new ApiResponse(200, project, "Project fetched successfully"));
@@ -81,7 +100,7 @@ const createProject = asyncHandler(async (req, res) => {
   if (!name) throw new ApiError(400, "Project name is required");
 
   if (clientId) {
-    const exists = await Project.findOne({ clientId });
+    const exists = await Project.findOne({ clientId }).select("_id").lean();
     if (exists) throw new ApiError(409, "A project for this client already exists");
   }
 

@@ -3,9 +3,13 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadAttachmentOnCloudinary, fetchAttachmentFromCloudinary } from "../utils/cloudinary.js";
+import {
+  isAdmin,
+  getDepartmentTeamIds,
+  buildTaskVisibilityFilter,
+} from "../utils/taskVisibility.js";
 
-const ADMIN_ROLES = ["ADMIN", "SUBADMIN"];
-const isAdmin = (role) => ADMIN_ROLES.includes(role?.toUpperCase());
+const attachmentUrl = (uploaded) => uploaded?.url || uploaded?.secure_url || null;
 
 const populateTask = (query) =>
   query
@@ -24,7 +28,6 @@ const populateTaskWithProject = (query) =>
     .populate({ path: "createdBy", select: "fullName image departmentId", populate: { path: "departmentId", select: "name" } })
     .populate("comments.author", "fullName image");
 
-// Parse assignees from FormData (sent as JSON string) or JSON array
 const parseAssignees = (raw) => {
   if (!raw) return undefined;
   if (Array.isArray(raw)) return raw;
@@ -34,60 +37,44 @@ const parseAssignees = (raw) => {
   return [];
 };
 
+const EMPTY_COLUMNS = { todo: [], "in-progress": [], "in-review": [], done: [] };
+
+const groupTasksIntoColumns = (tasks) => {
+  const columns = { todo: [], "in-progress": [], "in-review": [], done: [] };
+  tasks.forEach((t) => { if (columns[t.status]) columns[t.status].push(t); });
+  return columns;
+};
+
 // ─── GET tasks by project — with visibility rules ──────────────
 const getTasksByProject = asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const userId = req.user._id.toString();
+  const userId = req.user._id;
   const userRole = req.user.role?.toUpperCase();
   const userDeptId = req.user.departmentId?.toString();
 
-  let tasks = await populateTask(
-    Task.find({ projectId }).sort({ order: 1, createdAt: 1 })
-  );
+  const visibilityFilter = await buildTaskVisibilityFilter(userId, userRole, userDeptId);
 
-  if (!isAdmin(userRole)) {
-    tasks = tasks.filter((task) => {
-      const creatorId = task.createdBy?._id?.toString();
-      const creatorDeptId = task.createdBy?.departmentId?.toString();
-      const assigneeIds = task.assignees?.map((a) => a._id?.toString()) || [];
-      const assigneeDeptIds = task.assignees?.map((a) => a.departmentId?.toString()) || [];
+  const tasks = await populateTask(
+    Task.find({ projectId, ...visibilityFilter }).sort({ order: 1, createdAt: 1 })
+  ).lean();
 
-      if (userRole === "DEP_ADMIN") {
-        return creatorId === userId || creatorDeptId === userDeptId || assigneeDeptIds.includes(userDeptId);
-      }
-      return creatorId === userId || assigneeIds.includes(userId);
-    });
-  }
+  const columns = tasks.length ? groupTasksIntoColumns(tasks) : { ...EMPTY_COLUMNS };
 
-  const columns = { todo: [], "in-progress": [], "in-review": [], done: [] };
-  tasks.forEach((t) => { if (columns[t.status]) columns[t.status].push(t); });
-
+  // Keep both for frontend compatibility (viewingTask sync uses tasks)
   return res.status(200).json(new ApiResponse(200, { tasks, columns }, "Tasks fetched"));
 });
 
 // ─── GET all tasks across all projects ───────────────────────
 const getAllTasks = asyncHandler(async (req, res) => {
-  const userId = req.user._id.toString();
+  const userId = req.user._id;
   const userRole = req.user.role?.toUpperCase();
   const userDeptId = req.user.departmentId?.toString();
 
-  let tasks = await populateTaskWithProject(
-    Task.find().sort({ createdAt: -1 })
-  );
+  const visibilityFilter = await buildTaskVisibilityFilter(userId, userRole, userDeptId);
 
-  if (!isAdmin(userRole)) {
-    tasks = tasks.filter((task) => {
-      const creatorId = task.createdBy?._id?.toString();
-      const creatorDeptId = task.createdBy?.departmentId?.toString();
-      const assigneeIds = task.assignees?.map((a) => a._id?.toString()) || [];
-      const assigneeDeptIds = task.assignees?.map((a) => a.departmentId?.toString()) || [];
-
-      if (userRole === "DEP_ADMIN") {
-        return creatorId === userId || creatorDeptId === userDeptId || assigneeDeptIds.includes(userDeptId);
-      }
-      return creatorId === userId || assigneeIds.includes(userId);
-    });
-  }
+  const tasks = await populateTaskWithProject(
+    Task.find(visibilityFilter).sort({ createdAt: -1 })
+  ).lean();
 
   return res.status(200).json(new ApiResponse(200, tasks, "All tasks fetched"));
 });
@@ -99,7 +86,10 @@ const createTask = asyncHandler(async (req, res) => {
 
   if (!projectId || !title) throw new ApiError(400, "projectId and title are required");
 
-  const lastTask = await Task.findOne({ projectId, status: status || "todo" }).sort({ order: -1 });
+  const lastTask = await Task.findOne({ projectId, status: status || "todo" })
+    .sort({ order: -1 })
+    .select("order")
+    .lean();
   const order = lastTask ? lastTask.order + 1 : 0;
 
   const task = await Task.create({
@@ -114,12 +104,12 @@ const createTask = asyncHandler(async (req, res) => {
     createdBy: req.user?._id,
   });
 
-  // Upload creator attachment if provided
   if (req.file) {
     const uploaded = await uploadAttachmentOnCloudinary(req.file);
-    if (uploaded?.url) {
+    const url = attachmentUrl(uploaded);
+    if (url) {
       task.creatorAttachment = {
-        url: uploaded.secure_url,
+        url,
         originalName: req.file.originalname,
         publicId: uploaded.public_id,
       };
@@ -131,7 +121,7 @@ const createTask = asyncHandler(async (req, res) => {
   return res.status(201).json(new ApiResponse(201, populated, "Task created"));
 });
 
-// ─── PATCH update task (creator/admin only) ───────────────────
+// ─── PATCH update task (creator / admin / subadmin) ───────────
 const updateTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id.toString();
@@ -140,8 +130,9 @@ const updateTask = asyncHandler(async (req, res) => {
   const task = await Task.findById(id);
   if (!task) throw new ApiError(404, "Task not found");
 
-  if (!isAdmin(userRole) && task.createdBy?.toString() !== userId) {
-    throw new ApiError(403, "Only the task creator can edit this task");
+  const isCreator = task.createdBy?.toString() === userId;
+  if (!isAdmin(userRole) && !isCreator) {
+    throw new ApiError(403, "Only the task creator, admin, or subadmin can edit this task");
   }
 
   const { title, description, priority, dueDate, status } = req.body;
@@ -155,12 +146,12 @@ const updateTask = asyncHandler(async (req, res) => {
   if (dueDate !== undefined) update.dueDate = dueDate || null;
   if (status) update.status = status;
 
-  // Replace creator attachment if a new file was sent
   if (req.file) {
     const uploaded = await uploadAttachmentOnCloudinary(req.file);
-    if (uploaded?.url) {
+    const url = attachmentUrl(uploaded);
+    if (url) {
       update.creatorAttachment = {
-        url: uploaded.url,
+        url,
         originalName: req.file.originalname,
         publicId: uploaded.public_id,
       };
@@ -180,6 +171,7 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
   const { status, order } = req.body;
   const userId = req.user._id.toString();
   const userRole = req.user.role?.toUpperCase();
+  const userDeptId = req.user.departmentId?.toString();
 
   if (!status) throw new ApiError(400, "status is required");
 
@@ -190,10 +182,22 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
   const _isCreator = task.createdBy?.toString() === userId;
   const _isAssignee = task.assignees?.some((a) => a.toString() === userId);
 
-  if (status === "done" && !_isCreator && !_isAdmin) {
-    throw new ApiError(403, "Only the task creator or admin can mark a task as Done");
+  let _isDeptAdminOfAssignee = false;
+  let _isDeptAdminOfCreator = false;
+  if (userRole === "DEP_ADMIN" && userDeptId) {
+    const teamIds = await getDepartmentTeamIds(userDeptId, userId);
+    const teamIdSet = new Set(teamIds.map((tid) => tid.toString()));
+    _isDeptAdminOfAssignee = task.assignees?.some((a) => teamIdSet.has(a.toString()));
+    _isDeptAdminOfCreator = task.createdBy && teamIdSet.has(task.createdBy.toString());
   }
-  if (!_isAdmin && !_isCreator && !_isAssignee) {
+
+  if (status === "done" && !_isCreator && !_isAdmin && !_isDeptAdminOfCreator) {
+    throw new ApiError(
+      403,
+      "Only the task creator, their department admin, admin, or subadmin can mark a task as Done",
+    );
+  }
+  if (!_isAdmin && !_isCreator && !_isAssignee && !_isDeptAdminOfAssignee && !_isDeptAdminOfCreator) {
     throw new ApiError(403, "You do not have permission to move this task");
   }
 
@@ -210,11 +214,13 @@ const addComment = asyncHandler(async (req, res) => {
   const { text } = req.body;
   if (!text?.trim()) throw new ApiError(400, "Comment text is required");
 
-  await Task.findByIdAndUpdate(
-    id,
-    { $push: { comments: { author: req.user._id, text: text.trim() } } }
+  const populated = await populateTask(
+    Task.findByIdAndUpdate(
+      id,
+      { $push: { comments: { author: req.user._id, text: text.trim() } } },
+      { new: true }
+    )
   );
-  const populated = await populateTask(Task.findById(id));
   if (!populated) throw new ApiError(404, "Task not found");
 
   return res.status(201).json(new ApiResponse(201, populated, "Comment added"));
@@ -252,18 +258,20 @@ const uploadCreatorAttachment = asyncHandler(async (req, res) => {
   const task = await Task.findById(id);
   if (!task) throw new ApiError(404, "Task not found");
 
-  if (!isAdmin(userRole) && task.createdBy?.toString() !== userId) {
-    throw new ApiError(403, "Only the task creator can upload the creator attachment");
+  const isCreator = task.createdBy?.toString() === userId;
+  if (!isAdmin(userRole) && !isCreator) {
+    throw new ApiError(403, "Only the task creator, admin, or subadmin can upload the creator attachment");
   }
   if (!req.file) throw new ApiError(400, "No file provided");
 
   const uploaded = await uploadAttachmentOnCloudinary(req.file);
-  if (!uploaded?.url) throw new ApiError(500, "File upload failed");
+  const url = attachmentUrl(uploaded);
+  if (!url) throw new ApiError(500, "File upload failed");
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
       id,
-      { creatorAttachment: { url: uploaded.url, originalName: req.file.originalname, publicId: uploaded.public_id } },
+      { creatorAttachment: { url, originalName: req.file.originalname, publicId: uploaded.public_id } },
       { new: true }
     )
   );
@@ -287,12 +295,13 @@ const uploadAssigneeAttachment = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "No file provided");
 
   const uploaded = await uploadAttachmentOnCloudinary(req.file);
-  if (!uploaded?.url) throw new ApiError(500, "File upload failed");
+  const url = attachmentUrl(uploaded);
+  if (!url) throw new ApiError(500, "File upload failed");
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
       id,
-      { assigneeAttachment: { url: uploaded.url, originalName: req.file.originalname, publicId: uploaded.public_id } },
+      { assigneeAttachment: { url, originalName: req.file.originalname, publicId: uploaded.public_id } },
       { new: true }
     )
   );
@@ -303,6 +312,12 @@ const uploadAssigneeAttachment = asyncHandler(async (req, res) => {
 // ─── DELETE task ──────────────────────────────────────────────
 const deleteTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const userRole = req.user.role?.toUpperCase();
+
+  if (!isAdmin(userRole)) {
+    throw new ApiError(403, "Only admin or subadmin can delete a task");
+  }
+
   const task = await Task.findByIdAndDelete(id);
   if (!task) throw new ApiError(404, "Task not found");
   return res.status(200).json(new ApiResponse(200, {}, "Task deleted"));

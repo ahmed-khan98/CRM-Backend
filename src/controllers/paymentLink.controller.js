@@ -12,6 +12,14 @@ import { generateAccessToken } from "../utils/paypalAuth.js";
 const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL;
 
+const pickValidObjectId = (...values) => {
+  for (const value of values) {
+    const id = typeof value === "string" ? value.trim() : value;
+    if (id && mongoose.Types.ObjectId.isValid(id)) return id;
+  }
+  return null;
+};
+
 const createPaymentLink = asyncHandler(async (req, res) => {
   const {
     leadId,
@@ -30,7 +38,12 @@ const createPaymentLink = asyncHandler(async (req, res) => {
     agent,
     type,
     seller,
+    fronter,
   } = req.body;
+
+  const saleType = type?.toUpperCase()?.trim();
+  const resolvedSeller = pickValidObjectId(seller, fronter);
+  const resolvedAgent = pickValidObjectId(agent);
 
   // 1. Standard Fields Validation
   if (
@@ -42,15 +55,15 @@ const createPaymentLink = asyncHandler(async (req, res) => {
       service,
       amount,
       type,
-      seller,
       departmentId,
-    ].some((field) => field === undefined || field === "")
+    ].some((field) => field === undefined || field === "") ||
+    !resolvedSeller
   ) {
     throw new ApiError(400, "All fields are required");
   }
 
-  // 🔄 2. Special Validation: Agar type FRESH hai to agent lazmi hona chahiye
-  if (type?.toUpperCase() === "FRESH" && (!agent || agent === "")) {
+  // Agent required only for FRESH sales
+  if (saleType === "FRESH" && !resolvedAgent) {
     throw new ApiError(400, "Agent info is required when sale type is FRESH.");
   }
 
@@ -64,12 +77,21 @@ const createPaymentLink = asyncHandler(async (req, res) => {
     if (existingClient) {
       finalClientId = existingClient._id;
     } else {
+      const handleBy =
+        saleType === "FRESH"
+          ? pickValidObjectId(resolvedAgent, resolvedSeller)
+          : resolvedSeller;
+
+      if (!handleBy) {
+        throw new ApiError(400, "Valid seller or agent is required to create client");
+      }
+
       const client = await Client.create({
         name,
         phoneNo,
         email,
         departmentId,
-        handleBy: agent,
+        handleBy,
         companyName,
         signupType: "other",
         ...(brandId && { brandId }),
@@ -92,14 +114,13 @@ const createPaymentLink = asyncHandler(async (req, res) => {
     service,
     amount,
     description,
-    seller,
+    seller: resolvedSeller,
     type,
     ...(currency && { currency }),
   };
 
-  // 🧠 Condition: Agent tabhi save hoga jab type hamesha "FRESH" hogi
-  if (type?.toUpperCase() === "FRESH") {
-    paymentLinkPayload.agent = agent;
+  if (saleType === "FRESH" && resolvedAgent) {
+    paymentLinkPayload.agent = resolvedAgent;
   }
 
   const link = await PaymentLink.create(paymentLinkPayload);

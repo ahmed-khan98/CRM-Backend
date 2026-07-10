@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { breakIn, breakOut, createEmployee, deleteEmployee, getAllEmployees, getAllBreaks,getMyBreak, getEmployeeById, getEmployeesByDepartId ,statusChange, updateEmployee } from "../controllers/employee.controller.js";
+import { breakIn, breakOut, createEmployee, deleteEmployee, getAllEmployees, getAssignees, getAllBreaks,getMyBreak, getEmployeeById, getEmployeesByDepartId ,statusChange, updateEmployee } from "../controllers/employee.controller.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
@@ -10,6 +10,7 @@ const router=Router();
 router.use(verifyJWT)
 
 router.route('/').get(checkRole("ADMIN","SUBADMIN","HR_ADMIN","DEP_ADMIN"),filterByRole,getAllEmployees)
+router.route('/assignees').get(getAssignees)
 router.route('/add').post(checkRole("ADMIN","SUBADMIN","HR_ADMIN","DEP_ADMIN"),upload.single("image"),createEmployee)
 router.route("/breakIn").post(breakIn)
 router.route("/breakOut").post(breakOut)

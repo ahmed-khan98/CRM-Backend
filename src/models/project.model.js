@@ -5,7 +5,6 @@ const projectSchema = new Schema(
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
-      default: null,
     },
     name: {
       type: String,

@@ -1,3 +1,5 @@
+import jwt from "jsonwebtoken";
+import { Employee } from "../../models/employee.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
@@ -8,12 +10,16 @@ const allowedIps = process.env.IP
 const whitelistedEmails = [
   "ahmedkhan@pentaprime-innovations.com",
   "sarim.zia.ppi@gmail.com",
-  "jasimzia@zytronworld.com"
+  "jasimzia@zytronworld.com",
+  "kevinwaqar@zytronworld.com"
 ];
 
 export const restrictIP = asyncHandler(async (req, res, next) => {
-  // 1. Bypass Payment Link
-  if (req.originalUrl.includes("/paymentlink")) {
+  // 1. Bypass Payment Link and Brand routes
+  if (
+    req.originalUrl.includes("/paymentlink") ||
+    req.originalUrl.includes("/brand")
+  ) {
     return next(); // Return lagana zaroori hai taake niche wala code execute na ho
   }
 
@@ -30,42 +36,35 @@ export const restrictIP = asyncHandler(async (req, res, next) => {
     clientIP = clientIP.replace("::ffff:", "");
   }
 
- // 3. Extract User Email (Cookie vs Pure Header Token)
+  // 3. Extract User Email (currentUser cookie or JWT token)
   let emailToVerify = null;
 
-  // Pehle approach cookie se check karne ki (Normal browser k liye)
   try {
     const userCookie = req?.cookies?.currentuser || req?.cookies?.currentUser;
     if (userCookie) {
-      const currentUser = typeof userCookie === "string" ? JSON.parse(userCookie) : userCookie;
+      const currentUser =
+        typeof userCookie === "string" ? JSON.parse(userCookie) : userCookie;
       emailToVerify = currentUser?.email;
     }
   } catch (e) {
-    // Cookie parsing fail ya cookie na ho toh koi masla nahi
+    // Cookie parsing failed — fall through to JWT
   }
 
-  // 🔥 CORE FIX FOR INCOGNITO: Agar cookie block ho chuki hy, toh direct frontend authorization header se token nikalo
   if (!emailToVerify) {
     try {
-      const authHeader = req.header("Authorization") || req.headers["authorization"];
-      
-      // Strict Check: Sirf tabhi verify karein jab frontend ne header me token bheja ho
-      if (authHeader && authHeader.startsWith("Bearer ")) {
-        const token = authHeader.replace("Bearer ", "").trim();
+      const token =
+        req.cookies?.accessToken ||
+        req.header("Authorization")?.replace("Bearer ", "");
 
-        if (token) {
-          // Token decode karo using secret key
-          const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-          
-          // Database se real-time email check kar lo
-          const user = await Employee.findById(decodedToken?._id).select("email");
-          if (user) {
-            emailToVerify = user.email;
-          }
+      if (token) {
+        const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        const user = await Employee.findById(decodedToken?._id).select("email");
+        if (user) {
+          emailToVerify = user.email;
         }
       }
     } catch (e) {
-      console.error("JWT Header verification failed in restrictIP:", e.message);
+      console.error("JWT verification failed in restrictIP:", e.message);
     }
   }
 

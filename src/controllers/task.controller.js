@@ -21,8 +21,19 @@ const populateTaskWithProject = (query) =>
   query
     .populate({
       path: "projectId",
-      select: "name clientId",
-      populate: { path: "clientId", select: "departmentId", populate: { path: "departmentId", select: "name" } },
+      select: "name clientId createdBy",
+      populate: [
+        {
+          path: "clientId",
+          select: "name companyName departmentId",
+          populate: { path: "departmentId", select: "name" },
+        },
+        {
+          path: "createdBy",
+          select: "departmentId",
+          populate: { path: "departmentId", select: "name" },
+        },
+      ],
     })
     .populate({ path: "assignees", select: "fullName image departmentId", populate: { path: "departmentId", select: "name" } })
     .populate({ path: "createdBy", select: "fullName image departmentId", populate: { path: "departmentId", select: "name" } })
@@ -50,9 +61,12 @@ const getTasksByProject = asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const userId = req.user._id;
   const userRole = req.user.role?.toUpperCase();
-  const userDeptId = req.user.departmentId?.toString();
+  const userDeptId =
+    req.user.departmentId?._id?.toString() || req.user.departmentId?.toString();
 
-  const visibilityFilter = await buildTaskVisibilityFilter(userId, userRole, userDeptId);
+  const visibilityFilter = await buildTaskVisibilityFilter(userId, userRole, userDeptId, {
+    projectId,
+  });
 
   const tasks = await populateTask(
     Task.find({ projectId, ...visibilityFilter }).sort({ order: 1, createdAt: 1 })
@@ -68,7 +82,8 @@ const getTasksByProject = asyncHandler(async (req, res) => {
 const getAllTasks = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const userRole = req.user.role?.toUpperCase();
-  const userDeptId = req.user.departmentId?.toString();
+  const userDeptId =
+    req.user.departmentId?._id?.toString() || req.user.departmentId?.toString();
 
   const visibilityFilter = await buildTaskVisibilityFilter(userId, userRole, userDeptId);
 

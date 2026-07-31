@@ -30,6 +30,7 @@ import { adminVerify } from "./middlewares/adminVerify.js";
 import { limiter } from "./middlewares/rateLimiter/page.js";
 import { restrictIP } from "./middlewares/IPRestrict/page.js";
 import { verifyJWT } from "./middlewares/auth.middleware.js";
+import { isOriginAllowed } from "./utils/corsOrigins.js";
 // import bodyParser from 'body-parser';
 
 const app = express();
@@ -40,26 +41,16 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", "loopback");
 }
 
-const allowedOrigins = [
-  "https://www.zytronworld.online",
-  "http://localhost:3000",
-  "https://crm-virid-nine-17.vercel.app",
-  "https://customer-payment-link.vercel.app"
-];
-
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
+      if (isOriginAllowed(origin)) {
         return callback(null, true);
       }
 
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
-
   }),
 );
 

@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Employee } from "../models/employee.model.js";
+import { getAllowedOrigins, isOriginAllowed } from "./corsOrigins.js";
 
 let io = null;
 
@@ -10,29 +11,33 @@ const userRoom = (userId) => `user:${userId}`;
  * Attach Socket.IO to an HTTP server. Call once after createServer.
  */
 export const initSocket = (httpServer) => {
-  const allowedOrigins = [
-    "https://www.zytronworld.online",
-    "http://localhost:3000",
-    "https://crm-virid-nine-17.vercel.app",
-    "https://customer-payment-link.vercel.app",
-  ];
+  const allowedOrigins = getAllowedOrigins();
 
   io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins,
+      origin: (origin, callback) => {
+        if (isOriginAllowed(origin)) return callback(null, true);
+        return callback(new Error(`Not allowed by Socket CORS: ${origin}`));
+      },
       credentials: true,
       methods: ["GET", "POST"],
     },
+    // Railway / reverse proxies: start with polling, then upgrade to websocket
+    transports: ["polling", "websocket"],
+    allowUpgrades: true,
     path: "/socket.io",
+    pingInterval: 25000,
+    pingTimeout: 20000,
   });
 
   io.use(async (socket, next) => {
     try {
       const token =
         socket.handshake.auth?.token ||
+        socket.handshake.query?.token ||
         socket.handshake.headers?.authorization?.replace("Bearer ", "");
 
-      if (!token) {
+      if (!token || typeof token !== "string") {
         return next(new Error("Unauthorized"));
       }
 
@@ -45,20 +50,23 @@ export const initSocket = (httpServer) => {
 
       socket.userId = user._id.toString();
       next();
-    } catch {
+    } catch (err) {
       next(new Error("Unauthorized"));
     }
   });
 
   io.on("connection", (socket) => {
     socket.join(userRoom(socket.userId));
+    console.log(
+      `[socket] connected user=${socket.userId} id=${socket.id} transport=${socket.conn?.transport?.name}`
+    );
 
-    socket.on("disconnect", () => {
-      // room leave is automatic
+    socket.on("disconnect", (reason) => {
+      console.log(`[socket] disconnected user=${socket.userId} reason=${reason}`);
     });
   });
 
-  console.log("Socket.IO initialized");
+  console.log("Socket.IO initialized. Allowed origins:", allowedOrigins.join(", "));
   return io;
 };
 
@@ -66,7 +74,10 @@ export const getIO = () => io;
 
 /** Emit a payload to a specific user's private room */
 export const emitToUser = (userId, event, payload) => {
-  if (!io || !userId) return;
+  if (!io || !userId) {
+    console.warn(`[socket] emit skipped (io=${!!io}, userId=${userId}) event=${event}`);
+    return;
+  }
   io.to(userRoom(userId.toString())).emit(event, payload);
 };
 

@@ -5,10 +5,14 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
+  canManageProject,
   getAccessibleProjectIds,
   getUserProjectGroups,
   isAdmin,
 } from "../utils/taskVisibility.js";
+
+const getUserDeptId = (user) =>
+  user?.departmentId?._id?.toString() || user?.departmentId?.toString();
 
 const EMPTY_TASK_COUNTS = { todo: 0, "in-progress": 0, "in-review": 0, done: 0, total: 0 };
 
@@ -174,6 +178,17 @@ const createProject = asyncHandler(async (req, res) => {
 const updateProject = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, description, status } = req.body;
+  const userId = req.user._id;
+  const userRole = req.user.role?.toUpperCase();
+  const userDeptId = getUserDeptId(req.user);
+
+  const existing = await Project.findById(id).select("createdBy").lean();
+  if (!existing) throw new ApiError(404, "Project not found");
+
+  const allowed = await canManageProject(existing, userId, userRole, userDeptId);
+  if (!allowed) {
+    throw new ApiError(403, "You can only update projects from your own department");
+  }
 
   const project = await Project.findByIdAndUpdate(
     id,
@@ -189,6 +204,17 @@ const updateProject = asyncHandler(async (req, res) => {
 // DELETE project (cascade tasks)
 const deleteProject = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user._id;
+  const userRole = req.user.role?.toUpperCase();
+  const userDeptId = getUserDeptId(req.user);
+
+  const existing = await Project.findById(id).select("createdBy").lean();
+  if (!existing) throw new ApiError(404, "Project not found");
+
+  const allowed = await canManageProject(existing, userId, userRole, userDeptId);
+  if (!allowed) {
+    throw new ApiError(403, "You can only delete projects from your own department");
+  }
 
   const project = await Project.findByIdAndDelete(id);
   if (!project) throw new ApiError(404, "Project not found");

@@ -29,10 +29,12 @@ const projectSchema = new Schema(
   { timestamps: true }
 );
 
-// Auto-delete all tasks when a project is deleted
 projectSchema.pre("findOneAndDelete", async function (next) {
   const projectId = this.getQuery()["_id"];
-  await mongoose.model("Task").deleteMany({ projectId });
+  if (projectId) {
+    await mongoose.model("Task").deleteMany({ projectId });
+    await mongoose.model("Notification").deleteMany({ projectId });
+  }
   next();
 });
 

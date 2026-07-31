@@ -1,7 +1,9 @@
 // require('dotenv').config({path: './env'})
 import dotenv from "dotenv"
+import http from "http"
 import connectDB from "./db/index.js";
 import {app} from './app.js'
+import { initSocket } from "./utils/socket.js"
 
 dotenv.config({
     path: './.env'
@@ -22,7 +24,10 @@ process.on('uncaughtException', (err) => {
 
 connectDB()
 .then(() => {
-    app.listen(process.env.PORT , () => {
+    const server = http.createServer(app);
+    initSocket(server);
+
+    server.listen(process.env.PORT , () => {
         console.log(`⚙️ Server is running at port :${process.env.PORT}`);
     })
 })
@@ -34,4 +39,3 @@ app.get('/',(req,res)=>{
     console.log('--- RAILWAY HEALTH CHECK HIT SUCCESSFULLY ---');
     res.send('server running — OK')
 })
-

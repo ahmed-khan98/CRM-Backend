@@ -7,7 +7,6 @@ import {
   deleteProject,
 } from "../controllers/project.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { checkRole } from "../middlewares/checkRole.js";
 
 const router = Router();
 
@@ -18,6 +17,6 @@ router
   .route("/:id")
   .get(getProjectById)
   .patch(updateProject)
-  .delete(checkRole('ADMIN','SUBADMIN'),deleteProject);
+  .delete(deleteProject);
 
 export default router;

@@ -8,8 +8,18 @@ import {
   getDepartmentTeamIds,
   buildTaskVisibilityFilter,
 } from "../utils/taskVisibility.js";
+import { notifyTaskAssignees, notifyTaskStatusChange, notifyTaskComment } from "../utils/notifyTaskAssignees.js";
+import { emitToUsers } from "../utils/socket.js";
+import { Notification } from "../models/notification.model.js";
 
 const attachmentUrl = (uploaded) => uploaded?.url || uploaded?.secure_url || null;
+
+const isCreatorDepartmentMember = async (task, userId, userDeptId) => {
+  if (!userDeptId || !task?.createdBy) return false;
+
+  const teamIds = await getDepartmentTeamIds(userDeptId, userId);
+  return teamIds.includes(task.createdBy.toString());
+};
 
 const populateTask = (query) =>
   query
@@ -132,26 +142,74 @@ const createTask = asyncHandler(async (req, res) => {
     }
   }
 
+  if (assignees.length) {
+    await notifyTaskAssignees({
+      task,
+      assigneeIds: assignees,
+      assignedBy: req.user?._id,
+    });
+  }
+
   const populated = await populateTask(Task.findById(task._id));
   return res.status(201).json(new ApiResponse(201, populated, "Task created"));
 });
 
-// ─── PATCH update task (creator / admin / subadmin) ───────────
+// ─── PATCH update task (creator department / admins) ──────────
 const updateTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id.toString();
   const userRole = req.user.role?.toUpperCase();
+  const userDeptId =
+    req.user.departmentId?._id?.toString() || req.user.departmentId?.toString();
 
   const task = await Task.findById(id);
   if (!task) throw new ApiError(404, "Task not found");
 
   const isCreator = task.createdBy?.toString() === userId;
-  if (!isAdmin(userRole) && !isCreator) {
-    throw new ApiError(403, "Only the task creator, admin, or subadmin can edit this task");
+  const isCreatorDeptMember = await isCreatorDepartmentMember(
+    task,
+    userId,
+    userDeptId
+  );
+
+  if (!isAdmin(userRole) && !isCreator && !isCreatorDeptMember) {
+    throw new ApiError(
+      403,
+      "Only members of the creator's department, admin, or subadmin can edit this task"
+    );
   }
 
   const { title, description, priority, dueDate, status } = req.body;
   const assignees = parseAssignees(req.body.assignees);
+  const isCreatorDeptAdmin =
+    userRole === "DEP_ADMIN" && isCreatorDeptMember;
+  const isStatusChanging = Boolean(status && status !== task.status);
+
+  if (
+    isStatusChanging &&
+    status === "done" &&
+    !isAdmin(userRole) &&
+    !isCreator &&
+    !isCreatorDeptAdmin
+  ) {
+    throw new ApiError(
+      403,
+      "Only the task creator or their department admin can mark this task as Done"
+    );
+  }
+
+  if (
+    isStatusChanging &&
+    task.status === "done" &&
+    !isAdmin(userRole) &&
+    !isCreator &&
+    !isCreatorDeptAdmin
+  ) {
+    throw new ApiError(
+      403,
+      "Done tasks cannot be moved back by other department members"
+    );
+  }
 
   const update = {};
   if (title !== undefined) update.title = title;
@@ -173,9 +231,33 @@ const updateTask = asyncHandler(async (req, res) => {
     }
   }
 
+  const previousAssigneeIds = (task.assignees || []).map((a) => a.toString());
+  const previousStatus = task.status;
   const updated = await populateTask(
     Task.findByIdAndUpdate(id, update, { new: true })
   );
+
+  if (assignees !== undefined) {
+    const newlyAssigned = assignees.filter(
+      (id) => !previousAssigneeIds.includes(id.toString())
+    );
+    if (newlyAssigned.length) {
+      await notifyTaskAssignees({
+        task: updated,
+        assigneeIds: newlyAssigned,
+        assignedBy: req.user?._id,
+      });
+    }
+  }
+
+  if (isStatusChanging) {
+    await notifyTaskStatusChange({
+      task: updated,
+      oldStatus: previousStatus,
+      newStatus: status,
+      changedBy: req.user?._id,
+    });
+  }
 
   return res.status(200).json(new ApiResponse(200, updated, "Task updated"));
 });
@@ -212,13 +294,37 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
       "Only the task creator, their department admin, admin, or subadmin can mark a task as Done",
     );
   }
+
+  if (
+    task.status === "done" &&
+    status !== "done" &&
+    !_isAdmin &&
+    !_isCreator &&
+    !_isDeptAdminOfCreator
+  ) {
+    throw new ApiError(
+      403,
+      "Done tasks cannot be moved back by assignees. Contact the task creator.",
+    );
+  }
+
   if (!_isAdmin && !_isCreator && !_isAssignee && !_isDeptAdminOfAssignee && !_isDeptAdminOfCreator) {
     throw new ApiError(403, "You do not have permission to move this task");
   }
 
+  const previousStatus = task.status;
   const updated = await populateTask(
     Task.findByIdAndUpdate(id, { status, ...(order !== undefined && { order }) }, { new: true })
   );
+
+  if (previousStatus !== status) {
+    await notifyTaskStatusChange({
+      task: updated,
+      oldStatus: previousStatus,
+      newStatus: status,
+      changedBy: req.user?._id,
+    });
+  }
 
   return res.status(200).json(new ApiResponse(200, updated, "Task status updated"));
 });
@@ -227,16 +333,24 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
 const addComment = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
-  if (!text?.trim()) throw new ApiError(400, "Comment text is required");
+
+  const plainText = text?.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  if (!plainText) throw new ApiError(400, "Comment text is required");
 
   const populated = await populateTask(
     Task.findByIdAndUpdate(
       id,
-      { $push: { comments: { author: req.user._id, text: text.trim() } } },
+      { $push: { comments: { author: req.user._id, text } } },
       { new: true }
     )
   );
   if (!populated) throw new ApiError(404, "Task not found");
+
+  await notifyTaskComment({
+    task: populated,
+    commentedBy: req.user._id,
+    commentPreview: plainText,
+  });
 
   return res.status(201).json(new ApiResponse(201, populated, "Comment added"));
 });
@@ -327,14 +441,44 @@ const uploadAssigneeAttachment = asyncHandler(async (req, res) => {
 // ─── DELETE task ──────────────────────────────────────────────
 const deleteTask = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user._id.toString();
   const userRole = req.user.role?.toUpperCase();
+  const userDeptId =
+    req.user.departmentId?._id?.toString() || req.user.departmentId?.toString();
 
-  if (!isAdmin(userRole)) {
-    throw new ApiError(403, "Only admin or subadmin can delete a task");
+  const task = await Task.findById(id);
+  if (!task) throw new ApiError(404, "Task not found");
+
+  const isCreator = task.createdBy?.toString() === userId;
+  const isCreatorDeptMember = await isCreatorDepartmentMember(
+    task,
+    userId,
+    userDeptId
+  );
+
+  if (!isAdmin(userRole) && !isCreator && !isCreatorDeptMember) {
+    throw new ApiError(
+      403,
+      "Only members of the creator's department, admin, or subadmin can delete this task"
+    );
   }
 
-  const task = await Task.findByIdAndDelete(id);
-  if (!task) throw new ApiError(404, "Task not found");
+  const projectId = task.projectId?.toString?.() || task.projectId;
+  const participantIds = new Set();
+  if (task.createdBy) participantIds.add(task.createdBy.toString());
+  (task.assignees || []).forEach((a) => participantIds.add(a.toString()));
+  participantIds.add(userId);
+
+  const notifyRecipients = await Notification.find({ taskId: id }).distinct("recipient");
+  notifyRecipients.forEach((rid) => participantIds.add(rid.toString()));
+
+  await Task.findByIdAndDelete(id);
+
+  emitToUsers([...participantIds], "task:deleted", {
+    taskId: id,
+    projectId: projectId || null,
+  });
+
   return res.status(200).json(new ApiResponse(200, {}, "Task deleted"));
 });
 
@@ -355,6 +499,11 @@ const MIME_BY_EXT = {
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
+  zip: "application/zip",
+  rar: "application/vnd.rar",
+  psd: "image/vnd.adobe.photoshop",
+  ai: "application/postscript",
+  eps: "application/postscript",
 };
 
 const isAllowedCloudinaryUrl = (urlString) => {
@@ -408,7 +557,30 @@ const proxyAttachment = asyncHandler(async (req, res) => {
   const buffer = Buffer.from(await upstream.arrayBuffer());
   const safeName = sanitizeFilename(filename ? decodeURIComponent(filename) : undefined);
   const contentType = resolveContentType(safeName, upstream.headers.get("content-type"));
-  const disp = disposition === "attachment" ? "attachment" : "inline";
+  const ext = safeName.split(".").pop()?.toLowerCase();
+  const forceDownload = [
+    "zip",
+    "rar",
+    "psd",
+    "ai",
+    "eps",
+    "doc",
+    "docx",
+    "xls",
+    "xlsx",
+    "ppt",
+    "pptx",
+  ].includes(ext);
+  const disp =
+    forceDownload || disposition === "attachment" ? "attachment" : "inline";
+
+  // Reject HTML/error bodies that were saved as fake zip/psd downloads
+  const looksLikeHtml =
+    buffer.length > 0 &&
+    buffer.subarray(0, 32).toString("utf8").trimStart().toLowerCase().startsWith("<!doctype");
+  if (looksLikeHtml) {
+    throw new ApiError(502, "Attachment storage returned an invalid file. Please re-upload.");
+  }
 
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Disposition", `${disp}; filename="${safeName}"`);

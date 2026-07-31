@@ -57,4 +57,12 @@ taskSchema.index({ createdBy: 1 });
 taskSchema.index({ assignees: 1 });
 taskSchema.index({ projectId: 1, status: 1, order: 1 });
 
+taskSchema.pre("findOneAndDelete", async function (next) {
+  const taskId = this.getQuery()["_id"];
+  if (taskId) {
+    await mongoose.model("Notification").deleteMany({ taskId });
+  }
+  next();
+});
+
 export const Task = mongoose.model("Task", taskSchema);

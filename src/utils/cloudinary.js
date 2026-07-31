@@ -51,19 +51,37 @@ const uploadAttachmentOnCloudinary = async (file) => {
   const { path, originalname, mimetype } = file;
 
   try {
+    const extension = originalname
+      .split(".")
+      .pop()
+      ?.toLowerCase();
+    const rawFileExtensions = new Set([
+      "zip",
+      "rar",
+      "psd",
+      "ai",
+      "eps",
+    ]);
+
     // Determine correct resource_type
     let resourceType = "raw"; // default: docs, PDFs, xlsx, etc.
-    if (mimetype?.startsWith("image/")) resourceType = "image";
+    if (rawFileExtensions.has(extension)) resourceType = "raw";
+    else if (mimetype?.startsWith("image/")) resourceType = "image";
     else if (mimetype?.startsWith("video/")) resourceType = "video";
 
     // Sanitize filename → safe public_id (no spaces, parens, special chars)
-    const nameOnly = originalname.replace(/\.[^.]+$/, ""); // strip extension
+    // Raw files MUST keep the extension in public_id or downloads can corrupt
+    const nameOnly = originalname.replace(/\.[^.]+$/, "");
     const safe = nameOnly.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 40);
     const uid = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const publicId =
+      resourceType === "raw" && extension
+        ? `CRM-Tasks/${safe}_${uid}.${extension}`
+        : `CRM-Tasks/${safe}_${uid}`;
 
     const result = await cloudinary.uploader.upload(path, {
       resource_type: resourceType,
-      public_id: `CRM-Tasks/${safe}_${uid}`,
+      public_id: publicId,
       overwrite: false,
       access_mode: "public",
       type: "upload",
@@ -93,9 +111,9 @@ const parseCloudinaryUrl = (urlString) => {
     if (!match) return null;
 
     const resourceType = match[1];
+    // Keep full path for raw files (extension is part of public_id for zip/psd/ai)
     let assetPath = decodeURIComponent(match[4]);
-    // raw/video assets: public_id has no extension in Cloudinary
-    if (resourceType === "raw" || resourceType === "video") {
+    if (resourceType === "video") {
       assetPath = assetPath.replace(/\.[^/.]+$/, "");
     }
 
@@ -111,39 +129,70 @@ const parseCloudinaryUrl = (urlString) => {
  */
 const fetchAttachmentFromCloudinary = async ({ url, publicId, filename }) => {
   const parsed = url ? parseCloudinaryUrl(url) : null;
-  const pid = publicId || parsed?.publicId;
   const resourceType = parsed?.resourceType || "raw";
+  const ext =
+    (filename || url || "")
+      .split("?")[0]
+      .split(".")
+      .pop()
+      ?.toLowerCase() || "bin";
 
-  if (!pid) {
-    if (!url) throw new Error("No url or publicId provided");
-    const res = await fetch(url.replace(/^http:\/\//i, "https://"));
-    if (!res.ok) throw new Error(`Direct fetch failed: ${res.status}`);
-    return res;
+  const candidates = [];
+  if (publicId) candidates.push(decodeURIComponent(String(publicId)));
+  if (parsed?.publicId) candidates.push(parsed.publicId);
+
+  // Older uploads stored public_id without extension; newer ones include it
+  for (const base of [...candidates]) {
+    if (!base) continue;
+    if (!base.toLowerCase().endsWith(`.${ext}`)) {
+      candidates.push(`${base}.${ext}`);
+    }
+    const stripped = base.replace(/\.[^/.]+$/, "");
+    if (stripped && stripped !== base) candidates.push(stripped);
   }
 
-  // 1) Signed delivery URL
-  const signedUrl = cloudinary.url(pid, {
-    resource_type: resourceType,
-    type: "upload",
-    sign_url: true,
-    secure: true,
-  });
+  const uniqueIds = [...new Set(candidates.filter(Boolean))];
 
-  let res = await fetch(signedUrl);
-  if (res.ok) return res;
+  // 1) Prefer direct delivery URL when available (works for most public raw files)
+  if (url) {
+    const direct = await fetch(url.replace(/^http:\/\//i, "https://"));
+    if (direct.ok) {
+      const type = direct.headers.get("content-type") || "";
+      // Avoid saving HTML error pages as "documents"
+      if (!type.includes("text/html")) return direct;
+    }
+  }
 
-  // 2) Admin authenticated download URL (bypasses PDF delivery block)
-  const ext = (filename || url || "").split(".").pop()?.split("?")[0] || "pdf";
-  const downloadUrl = cloudinary.utils.private_download_url(pid, ext, {
-    resource_type: resourceType,
-    type: "upload",
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-  });
+  // 2) Signed delivery URLs for each public_id variant
+  for (const pid of uniqueIds) {
+    const signedUrl = cloudinary.url(pid, {
+      resource_type: resourceType,
+      type: "upload",
+      sign_url: true,
+      secure: true,
+    });
 
-  res = await fetch(downloadUrl);
-  if (res.ok) return res;
+    const res = await fetch(signedUrl);
+    if (res.ok) {
+      const type = res.headers.get("content-type") || "";
+      if (!type.includes("text/html")) return res;
+    }
+  }
 
-  throw new Error(`Cloudinary fetch failed (${res.status})`);
+  // 3) Admin authenticated download URL
+  for (const pid of uniqueIds) {
+    try {
+      const downloadUrl = cloudinary.utils.private_download_url(pid, ext, {
+        resource_type: resourceType,
+        type: "upload",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const res = await fetch(downloadUrl);
+      if (res.ok) return res;
+    } catch (_) {}
+  }
+
+  throw new Error("Cloudinary fetch failed for attachment");
 };
 
 export {

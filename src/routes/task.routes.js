@@ -6,7 +6,6 @@ import {
 } from "../controllers/task.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
-import { checkRole } from "../middlewares/checkRole.js";
 
 const router = Router();
 router.use(verifyJWT);
@@ -20,7 +19,7 @@ router.route("/").post(upload.single("attachment"), createTask);
 router
   .route("/:id")
   .patch(upload.single("attachment"), updateTask)
-  .delete(checkRole("ADMIN", "SUBADMIN"), deleteTask);
+  .delete(deleteTask);
 router.route("/:id/status").patch(updateTaskStatus);
 router.route("/:id/comment").post(addComment);
 router.route("/:id/comment/:commentId").delete(deleteComment);

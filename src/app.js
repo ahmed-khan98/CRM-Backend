@@ -23,6 +23,9 @@ import { requestLogger } from "./middlewares/Logger/requestLogger.js";
 import dashboardRouter from "./routes/dashboardCount.routes.js";
 import projectRouter from "./routes/project.routes.js";
 import taskRouter from "./routes/task.routes.js";
+import notificationRouter from "./routes/notification.routes.js";
+import vendorRouter from "./routes/vendor.routes.js";
+import vehicleRouter from "./routes/vehicle.routes.js";
 import { adminVerify } from "./middlewares/adminVerify.js";
 import { limiter } from "./middlewares/rateLimiter/page.js";
 import { restrictIP } from "./middlewares/IPRestrict/page.js";
@@ -93,6 +96,9 @@ app.use("/api/v1/user/tmEmailList", TmEmailListRouter);
 app.use("/api/v1/user/paymentlink", paymentLinkRouter);
 app.use("/api/v1/user/project", projectRouter);
 app.use("/api/v1/user/task", taskRouter);
+app.use("/api/v1/user/notification", notificationRouter);
+app.use("/api/v1/user/vendor", vendorRouter);
+app.use("/api/v1/user/vehicle", vehicleRouter);
 
 app.use(ErrorHandler);
 

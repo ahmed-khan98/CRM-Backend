@@ -145,6 +145,27 @@ export const buildTaskVisibilityFilter = async (userId, userRole, userDeptId, op
 };
 
 /**
+ * USER / DEP_ADMIN may update/delete only projects created by their department team.
+ * Admins can manage any project.
+ */
+export const canManageProject = async (project, userId, userRole, userDeptId) => {
+  if (!project) return false;
+  if (isAdmin(userRole)) return true;
+
+  if (!userDeptId || (userRole !== "USER" && userRole !== "DEP_ADMIN")) {
+    return false;
+  }
+
+  const teamIds = await getDepartmentTeamIds(userDeptId, userId);
+  if (!teamIds.length) return false;
+
+  const creatorId =
+    project.createdBy?._id?.toString() || project.createdBy?.toString() || null;
+
+  return Boolean(creatorId && teamIds.includes(creatorId));
+};
+
+/**
  * Project IDs the user is allowed to see.
  * Returns null for admins (no restriction).
  * Returns [] when nothing is accessible.

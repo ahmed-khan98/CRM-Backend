@@ -14,7 +14,6 @@ const router = Router();
 
 router.use(verifyJWT);
 router.use(checkRole("ADMIN", "SUBADMIN"));
-
 router.route("/").get(getAllVendors);
 router.route("/add").post(upload.single("profilePicture"), createVendor);
 router

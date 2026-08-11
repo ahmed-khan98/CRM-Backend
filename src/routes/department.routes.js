@@ -7,9 +7,9 @@ import { checkRole } from "../middlewares/checkRole.js";
 const router=Router();
 
 router.use(verifyJWT)
-
+const allowRoles = ["ADMIN","SUBADMIN","HR_ADMIN"];
 router.route('/').get(getAllDepartments)
-router.route('/add').post(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),createDepartment)
-router.route('/:id').patch(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),updateDepartment).delete(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),deleteDepartment).get(getDepartmentById)
+router.route('/add').post(checkRole(...allowRoles),createDepartment)
+router.route('/:id').patch(checkRole(...allowRoles),updateDepartment).delete(checkRole(...allowRoles),deleteDepartment).get(getDepartmentById)
 
 export default router   

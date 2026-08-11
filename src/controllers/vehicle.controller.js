@@ -37,6 +37,7 @@ const populateVehicle = (query) =>
   query
     .populate("vendor", "companyName vendorName email phone status profilePicture")
     .populate("createdBy", "fullName email image")
+    .populate("assignedTo", "fullName email image designation")
     .populate("mileageHistory.createdBy", "fullName")
     .populate("maintenanceHistory.createdBy", "fullName");
 
@@ -99,6 +100,20 @@ const getAllVehicles = asyncHandler(async (req, res) => {
       "Vehicles fetched"
     )
   );
+});
+
+/** Unassigned fleet cars for HR car-allowance assignment */
+const getAvailableVehicles = asyncHandler(async (_req, res) => {
+  const items = await populateVehicle(
+    Vehicle.find({
+      status: "available",
+      $or: [{ assignedTo: null }, { assignedTo: { $exists: false } }],
+    }).sort({ vehicleName: 1 })
+  ).lean();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { items }, "Available vehicles fetched"));
 });
 
 const getVehicleById = asyncHandler(async (req, res) => {
@@ -332,6 +347,7 @@ const addMaintenance = asyncHandler(async (req, res) => {
 
 export {
   getAllVehicles,
+  getAvailableVehicles,
   getVehicleById,
   createVehicle,
   updateVehicle,

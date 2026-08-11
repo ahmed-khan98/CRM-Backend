@@ -74,6 +74,41 @@ const employeeSchema = new Schema(
     resetToken: String,
     resetTokenExpires: Date,
 
+    // --- HRMS extensions (all optional / backward compatible) ---
+    dateOfBirth: { type: Date },
+    gender: {
+      type: String,
+      enum: ["Male", "Female", "Other", ""],
+      default: "",
+    },
+    maritalStatus: {
+      type: String,
+      enum: ["Single", "Married", "Divorced", "Widowed", ""],
+      default: "",
+    },
+    bloodGroup: {
+      type: String,
+      enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", ""],
+      default: "",
+    },
+    emergencyContact: {
+      name: { type: String, trim: true, default: "" },
+      phone: { type: String, trim: true, default: "" },
+      relationship: { type: String, trim: true, default: "" },
+      address: { type: String, trim: true, default: "" },
+    },
+    employmentType: {
+      type: String,
+      enum: ["Permanent", "Probation", ""],
+      default: "",
+    },
+    currentSalary: { type: Number, min: 0 },
+    bankName: { type: String, trim: true, default: "" },
+    accountTitle: { type: String, trim: true, default: "" },
+    accountNumber: { type: String, trim: true, default: "" },
+    iban: { type: String, trim: true, default: "" },
+    ntn: { type: String, trim: true, default: "" },
+
     createdAt: {
       type: Date,
       default: Date.now,

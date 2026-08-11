@@ -64,10 +64,17 @@ const uploadAttachmentOnCloudinary = async (file) => {
     ]);
 
     // Determine correct resource_type
+    // Cloudinary stores audio under "video" resource type
     let resourceType = "raw"; // default: docs, PDFs, xlsx, etc.
     if (rawFileExtensions.has(extension)) resourceType = "raw";
     else if (mimetype?.startsWith("image/")) resourceType = "image";
-    else if (mimetype?.startsWith("video/")) resourceType = "video";
+    else if (
+      mimetype?.startsWith("video/") ||
+      mimetype?.startsWith("audio/") ||
+      ["webm", "ogg", "mp3", "m4a", "wav", "aac", "opus"].includes(extension)
+    ) {
+      resourceType = "video";
+    }
 
     // Sanitize filename → safe public_id (no spaces, parens, special chars)
     // Raw files MUST keep the extension in public_id or downloads can corrupt
@@ -152,13 +159,28 @@ const fetchAttachmentFromCloudinary = async ({ url, publicId, filename }) => {
   }
 
   const uniqueIds = [...new Set(candidates.filter(Boolean))];
+  const restrictedExts = new Set([
+    "pdf",
+    "doc",
+    "docx",
+    "xls",
+    "xlsx",
+    "ppt",
+    "pptx",
+    "zip",
+    "rar",
+    "psd",
+    "ai",
+    "eps",
+  ]);
+  const skipDirect = restrictedExts.has(ext) || resourceType === "raw";
 
-  // 1) Prefer direct delivery URL when available (works for most public raw files)
-  if (url) {
+  // 1) Direct URL only for non-restricted public assets (images etc.)
+  // Cloudinary often blocks unsigned PDF/raw delivery in browsers.
+  if (url && !skipDirect) {
     const direct = await fetch(url.replace(/^http:\/\//i, "https://"));
     if (direct.ok) {
       const type = direct.headers.get("content-type") || "";
-      // Avoid saving HTML error pages as "documents"
       if (!type.includes("text/html")) return direct;
     }
   }
@@ -188,8 +210,20 @@ const fetchAttachmentFromCloudinary = async ({ url, publicId, filename }) => {
         expires_at: Math.floor(Date.now() / 1000) + 3600,
       });
       const res = await fetch(downloadUrl);
-      if (res.ok) return res;
+      if (res.ok) {
+        const type = res.headers.get("content-type") || "";
+        if (!type.includes("text/html")) return res;
+      }
     } catch (_) {}
+  }
+
+  // 4) Last attempt: direct URL even for raw (some accounts allow it)
+  if (url && skipDirect) {
+    const direct = await fetch(url.replace(/^http:\/\//i, "https://"));
+    if (direct.ok) {
+      const type = direct.headers.get("content-type") || "";
+      if (!type.includes("text/html")) return direct;
+    }
   }
 
   throw new Error("Cloudinary fetch failed for attachment");

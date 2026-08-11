@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getAllVehicles,
+  getAvailableVehicles,
   getVehicleById,
   createVehicle,
   updateVehicle,
@@ -15,21 +16,32 @@ import { upload } from "../middlewares/multer.middleware.js";
 const router = Router();
 
 router.use(verifyJWT);
-router.use(checkRole("ADMIN", "SUBADMIN"));
 
 const vehicleMedia = upload.fields([
   { name: "images", maxCount: 20 },
   { name: "videos", maxCount: 10 },
 ]);
+const allowRoles = ["ADMIN", "SUBADMIN"];
 
-router.route("/").get(getAllVehicles);
-router.route("/add").post(vehicleMedia, createVehicle);
-router.route("/:id/mileage").post(addMileage);
-router.route("/:id/maintenance").post(addMaintenance);
+// HR needs available cars for Car Allowance (company car option)
+router
+  .route("/available")
+  .get(checkRole("ADMIN", "SUBADMIN", "HR_ADMIN"), getAvailableVehicles);
+
+router.route("/").get(checkRole(), getAllVehicles);
+router
+  .route("/add")
+  .post(checkRole(...allowRoles), vehicleMedia, createVehicle);
+router
+  .route("/:id/mileage")
+  .post(checkRole(...allowRoles), addMileage);
+router
+  .route("/:id/maintenance")
+  .post(checkRole(...allowRoles), addMaintenance);
 router
   .route("/:id")
-  .get(getVehicleById)
-  .patch(vehicleMedia, updateVehicle)
-  .delete(deleteVehicle);
+  .get(checkRole("ADMIN", "SUBADMIN", "HR_ADMIN"), getVehicleById)
+  .patch(checkRole(...allowRoles), vehicleMedia, updateVehicle)
+  .delete(checkRole(...allowRoles), deleteVehicle);
 
 export default router;

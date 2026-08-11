@@ -2,6 +2,10 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Employee } from "../models/employee.model.js";
 import { getAllowedOrigins, isOriginAllowed } from "./corsOrigins.js";
+import {
+  onChatSocketConnect,
+  onChatSocketDisconnect,
+} from "../sockets/chat.socket.js";
 
 let io = null;
 
@@ -22,7 +26,6 @@ export const initSocket = (httpServer) => {
       credentials: true,
       methods: ["GET", "POST"],
     },
-    // Railway / reverse proxies: start with polling, then upgrade to websocket
     transports: ["polling", "websocket"],
     allowUpgrades: true,
     path: "/socket.io",
@@ -55,18 +58,34 @@ export const initSocket = (httpServer) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     socket.join(userRoom(socket.userId));
     console.log(
       `[socket] connected user=${socket.userId} id=${socket.id} transport=${socket.conn?.transport?.name}`
     );
 
-    socket.on("disconnect", (reason) => {
-      console.log(`[socket] disconnected user=${socket.userId} reason=${reason}`);
+    try {
+      await onChatSocketConnect(io, socket);
+    } catch (err) {
+      console.error("[socket] chat connect error", err);
+    }
+
+    socket.on("disconnect", async (reason) => {
+      console.log(
+        `[socket] disconnected user=${socket.userId} reason=${reason}`
+      );
+      try {
+        await onChatSocketDisconnect(io, socket);
+      } catch (err) {
+        console.error("[socket] chat disconnect error", err);
+      }
     });
   });
 
-  console.log("Socket.IO initialized. Allowed origins:", allowedOrigins.join(", "));
+  console.log(
+    "Socket.IO initialized. Allowed origins:",
+    allowedOrigins.join(", ")
+  );
   return io;
 };
 
@@ -75,7 +94,9 @@ export const getIO = () => io;
 /** Emit a payload to a specific user's private room */
 export const emitToUser = (userId, event, payload) => {
   if (!io || !userId) {
-    console.warn(`[socket] emit skipped (io=${!!io}, userId=${userId}) event=${event}`);
+    console.warn(
+      `[socket] emit skipped (io=${!!io}, userId=${userId}) event=${event}`
+    );
     return;
   }
   io.to(userRoom(userId.toString())).emit(event, payload);
@@ -84,6 +105,8 @@ export const emitToUser = (userId, event, payload) => {
 /** Emit the same payload to many users */
 export const emitToUsers = (userIds = [], event, payload) => {
   if (!io || !userIds?.length) return;
-  const unique = [...new Set(userIds.map((id) => id?.toString()).filter(Boolean))];
-  unique.forEach((userId) => emitToUser(userId, event, payload));
+  const unique = [
+    ...new Set(userIds.map((id) => id?.toString()).filter(Boolean)),
+  ];
+  unique.forEach((uid) => emitToUser(uid, event, payload));
 };

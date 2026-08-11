@@ -77,6 +77,13 @@ const vehicleSchema = new Schema(
       default: "available",
       index: true,
     },
+    /** Employee currently assigned this vehicle (company car benefit) */
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Employee",
+      default: null,
+      index: true,
+    },
     notes: { type: String, trim: true, default: "" },
     mileageHistory: { type: [mileageLogSchema], default: [] },
     maintenanceHistory: { type: [maintenanceLogSchema], default: [] },

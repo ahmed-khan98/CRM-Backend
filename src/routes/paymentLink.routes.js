@@ -16,20 +16,21 @@ import { checkRole } from "../middlewares/checkRole.js";
 import { filterByRole } from "../middlewares/filterByRole.js";
 
 const router = Router();
+const allowRoles = ["ADMIN","SUBADMIN","DEP_ADMIN","USER","FINANCE_ADMIN"];
 
 // router.use(verifyJWT);
 
-router.route("/").get(verifyJWT,checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER','FINANCE_ADMIN'),filterByRole,getAllPaymentLinks);
-router.route("/add").post(verifyJWT,checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER','FINANCE_ADMIN'),createPaymentLink);
+router.route("/").get(verifyJWT,checkRole(...allowRoles),filterByRole,getAllPaymentLinks);
+router.route("/add").post(verifyJWT,checkRole(...allowRoles),createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
 router
   .route("/:id")
   .delete(verifyJWT,checkRole("ADMIN","SUBADMIN"),deletePaymentLink)
   .get(getPaymentLinkById)
-  .patch(verifyJWT,checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER','FINANCE_ADMIN'),updatePaymentLink);
+  .patch(verifyJWT,checkRole(...allowRoles),updatePaymentLink);
 router.route("/:brandId/brandPaymentLink").get(verifyJWT,getPaymentLinksByBrandId);
 router.route("/:leadId/leadPaymentLink").get(verifyJWT,getPaymentLinkById);
-router.route("/:id/status").patch(verifyJWT,checkRole("ADMIN","SUBADMIN","DEP_ADMIN","USER","FINANCE_ADMIN"),filterByRole,statusChange);
+router.route("/:id/status").patch(verifyJWT,checkRole(...allowRoles),filterByRole,statusChange);
 
 export default router;

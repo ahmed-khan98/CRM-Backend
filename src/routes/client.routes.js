@@ -8,11 +8,12 @@ import { filterByRole } from "../middlewares/filterByRole.js";
 
 const router=Router();
 
+const allowRoles = ["ADMIN","SUBADMIN","DEP_ADMIN"];
 router.use(verifyJWT)
 
 router.route('/').get(filterByRole,getAllClients)
 router.route('/add').post(upload.single("image"),createClient)
-router.route('/:id').patch(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN'),upload.single("image"),updateClient).delete(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN'),deleteClient).get(getClientById)
+router.route('/:id').patch(checkRole(...allowRoles),upload.single("image"),updateClient).delete(checkRole(...allowRoles),deleteClient).get(getClientById)
 router.route('/:id/departmentClient').get(getClientByDepartId)
 
 export default router   

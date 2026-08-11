@@ -20,7 +20,17 @@ const notificationSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["TASK_ASSIGNED", "TASK_STATUS", "TASK_COMMENT", "GENERAL"],
+      enum: [
+        "TASK_ASSIGNED",
+        "TASK_STATUS",
+        "TASK_COMMENT",
+        "GENERAL",
+        "CHAT_MESSAGE",
+        "CHAT_MENTION",
+        "CHAT_GROUP",
+        "MISSED_CALL",
+        "INCOMING_CALL",
+      ],
       default: "GENERAL",
     },
     taskId: {
@@ -31,6 +41,21 @@ const notificationSchema = new Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
+      default: null,
+    },
+    conversationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Conversation",
+      default: null,
+    },
+    messageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ChatMessage",
+      default: null,
+    },
+    callLogId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CallLog",
       default: null,
     },
     createdBy: {

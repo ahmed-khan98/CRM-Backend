@@ -11,7 +11,8 @@ const whitelistedEmails = [
   "ahmedkhan@pentaprime-innovations.com",
   "sarim.zia.ppi@gmail.com",
   "jasimzia@zytronworld.com",
-  "kevinwaqar@zytronworld.com"
+  "kevinwaqar@zytronworld.com",
+  "raziahmed@zytronworld.com"
 ];
 
 export const restrictIP = asyncHandler(async (req, res, next) => {
@@ -20,7 +21,7 @@ export const restrictIP = asyncHandler(async (req, res, next) => {
     req.originalUrl.includes("/paymentlink") ||
     req.originalUrl.includes("/brand")
   ) {
-    return next(); // Return lagana zaroori hai taake niche wala code execute na ho
+    return next();
   }
 
   // 2. Extract Client IP

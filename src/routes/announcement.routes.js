@@ -4,11 +4,11 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
 
 const router=Router();
-
+const allowRoles = ["ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"];
 router.use(verifyJWT)
 
 router.route('/').get(getAllAnnouncements)
-router.route('/').post(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),createAnnouncement)
-router.route('/:id').patch(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),updateAnnouncement).delete(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),deleteAnnouncement).get(getAnnouncementById)
-router.route("/change-status/:id").patch(checkRole("ADMIN","SUBADMIN","DEP_ADMIN","HR_ADMIN"),statusChange)
+router.route('/').post(checkRole(...allowRoles),createAnnouncement)
+router.route('/:id').patch(checkRole(...allowRoles),updateAnnouncement).delete(checkRole(...allowRoles),deleteAnnouncement).get(getAnnouncementById)
+router.route("/change-status/:id").patch(checkRole(...allowRoles),statusChange)
 export default router   

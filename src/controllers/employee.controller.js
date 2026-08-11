@@ -1,11 +1,64 @@
 import { Attendance } from "../models/attendence.model.js";
 import { Break } from "../models/break.model.js";
 import { Employee } from "../models/employee.model.js";
+import { EmployeeSalaryHistory } from "../models/employeeSalaryHistory.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { parseMaybeJson, toNumber } from "../utils/hrmsHelpers.js";
 import mongoose from "mongoose";
+
+const pickHrmsFields = (body) => {
+  const emergencyContact = parseMaybeJson(body.emergencyContact, undefined);
+
+  const fields = {};
+
+  if (body.dateOfBirth !== undefined && body.dateOfBirth !== "") {
+    fields.dateOfBirth = body.dateOfBirth;
+  }
+  if (body.gender !== undefined) fields.gender = body.gender || "";
+  if (body.maritalStatus !== undefined)
+    fields.maritalStatus = body.maritalStatus || "";
+  if (body.bloodGroup !== undefined) fields.bloodGroup = body.bloodGroup || "";
+  if (emergencyContact !== undefined) fields.emergencyContact = emergencyContact;
+  if (body.employmentType !== undefined)
+    fields.employmentType = body.employmentType || "";
+  const salary = toNumber(body.currentSalary);
+  if (salary !== undefined) fields.currentSalary = salary;
+  if (body.bankName !== undefined) fields.bankName = body.bankName || "";
+  if (body.accountTitle !== undefined)
+    fields.accountTitle = body.accountTitle || "";
+  if (body.accountNumber !== undefined)
+    fields.accountNumber = body.accountNumber || "";
+  if (body.iban !== undefined) fields.iban = body.iban || "";
+  if (body.ntn !== undefined) fields.ntn = body.ntn || "";
+
+  return fields;
+};
+
+const appendHistoryOnUpdate = async (existEmployee, nextFields, actorId, body) => {
+  const actor = actorId || undefined;
+  const effectiveDate = body.salaryEffectiveDate
+    ? new Date(body.salaryEffectiveDate)
+    : new Date();
+  const salaryReason = body.salaryChangeReason || "";
+
+  if (
+    nextFields.currentSalary !== undefined &&
+    Number(existEmployee.currentSalary || 0) !== Number(nextFields.currentSalary)
+  ) {
+    await EmployeeSalaryHistory.create({
+      employeeId: existEmployee._id,
+      previousSalary: existEmployee.currentSalary || 0,
+      newSalary: nextFields.currentSalary,
+      effectiveDate,
+      reason: salaryReason,
+      updatedBy: actor,
+      createdBy: actor,
+    });
+  }
+};
 
 const createEmployee = asyncHandler(async (req, res) => {
   const {
@@ -45,6 +98,8 @@ const createEmployee = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Employee image is not uploaded");
   }
 
+  const hrms = pickHrmsFields(req.body);
+
   const employee = await Employee.create({
     fullName,
     phoneNo,
@@ -57,7 +112,20 @@ const createEmployee = asyncHandler(async (req, res) => {
     image: image?.url,
     joiningDate,
     role,
+    ...hrms,
   });
+
+  if (hrms.currentSalary !== undefined) {
+    await EmployeeSalaryHistory.create({
+      employeeId: employee._id,
+      previousSalary: 0,
+      newSalary: hrms.currentSalary,
+      effectiveDate: joiningDate || new Date(),
+      reason: "Initial salary",
+      updatedBy: req.user?._id,
+      createdBy: req.user?._id,
+    });
+  }
 
   const createdUser = await Employee.findById(employee._id).select(
     "-password -refreshToken",
@@ -103,6 +171,9 @@ const updateEmployee = asyncHandler(async (req, res) => {
     image = img?.url;
   }
 
+  const hrms = pickHrmsFields(req.body);
+  await appendHistoryOnUpdate(existEmployee, hrms, req.user?._id, req.body);
+
   const EmployeeData = {
     fullName,
     phoneNo,
@@ -113,8 +184,14 @@ const updateEmployee = asyncHandler(async (req, res) => {
     joiningDate,
     address,
     role,
+    ...hrms,
     ...(image !== "" && { image }),
   };
+
+  // Remove undefined core fields so partial JSON updates don't wipe them
+  Object.keys(EmployeeData).forEach((key) => {
+    if (EmployeeData[key] === undefined) delete EmployeeData[key];
+  });
 
   const employee = await Employee.findByIdAndUpdate(
     id,
@@ -122,7 +199,7 @@ const updateEmployee = asyncHandler(async (req, res) => {
       $set: EmployeeData,
     },
     { new: true },
-  );
+  ).select("-password -refreshToken");
 
   if (!employee) {
     throw new ApiError("500", "internel server error");

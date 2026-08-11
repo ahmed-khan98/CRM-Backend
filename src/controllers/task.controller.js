@@ -555,9 +555,23 @@ const proxyAttachment = asyncHandler(async (req, res) => {
   }
 
   const buffer = Buffer.from(await upstream.arrayBuffer());
-  const safeName = sanitizeFilename(filename ? decodeURIComponent(filename) : undefined);
+  const safeName = sanitizeFilename(
+    filename
+      ? decodeURIComponent(filename)
+      : decodedUrl?.split("/").pop()?.split("?")[0]
+  );
   const contentType = resolveContentType(safeName, upstream.headers.get("content-type"));
   const ext = safeName.split(".").pop()?.toLowerCase();
+
+  // Reject HTML/error bodies masquerading as documents
+  const head = buffer.subarray(0, 32).toString("utf8").trimStart().toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html")) {
+    throw new ApiError(502, "Attachment storage returned an invalid file. Please re-upload.");
+  }
+  if (ext === "pdf" && !buffer.subarray(0, 5).toString("utf8").startsWith("%PDF")) {
+    throw new ApiError(502, "PDF file is invalid or blocked by storage. Please re-upload.");
+  }
+
   const forceDownload = [
     "zip",
     "rar",
@@ -574,18 +588,11 @@ const proxyAttachment = asyncHandler(async (req, res) => {
   const disp =
     forceDownload || disposition === "attachment" ? "attachment" : "inline";
 
-  // Reject HTML/error bodies that were saved as fake zip/psd downloads
-  const looksLikeHtml =
-    buffer.length > 0 &&
-    buffer.subarray(0, 32).toString("utf8").trimStart().toLowerCase().startsWith("<!doctype");
-  if (looksLikeHtml) {
-    throw new ApiError(502, "Attachment storage returned an invalid file. Please re-upload.");
-  }
-
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Disposition", `${disp}; filename="${safeName}"`);
   res.setHeader("Content-Length", buffer.length);
   res.setHeader("Cache-Control", "private, max-age=3600");
+  res.setHeader("X-Content-Type-Options", "nosniff");
 
   return res.send(buffer);
 });

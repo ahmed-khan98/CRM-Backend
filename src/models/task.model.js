@@ -5,6 +5,9 @@ const attachmentSchema = new Schema(
     url: { type: String },
     originalName: { type: String },
     publicId: { type: String },
+    // Cloudinary resource_type ("image" | "video" | "raw") — needed to
+    // delete this attachment correctly later (destroy() requires it).
+    resourceType: { type: String, default: "raw" },
   },
   { _id: false }
 );
@@ -45,8 +48,11 @@ const taskSchema = new Schema(
     dueDate: { type: Date },
     order: { type: Number, default: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "Employee" },
-    creatorAttachment: { type: attachmentSchema, default: null },
-    assigneeAttachment: { type: attachmentSchema, default: null },
+    // Arrays — a task can carry several creator/assignee attachments now
+    // (was a single object; see scripts/migrate-task-attachments-to-array.mjs
+    // for the one-time conversion of pre-existing single-attachment tasks).
+    creatorAttachment: { type: [attachmentSchema], default: [] },
+    assigneeAttachment: { type: [attachmentSchema], default: [] },
     // Comments for review
     comments: [commentSchema],
   },

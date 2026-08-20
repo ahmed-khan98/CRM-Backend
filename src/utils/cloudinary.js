@@ -40,41 +40,68 @@ const uploadBase64Image = async (base64String) => {
   }
 };
 
+/** Cloudinary's per-resource-type max upload size — these are the *account
+ * plan* caps (Free plan shown here: 10 MB image/raw, 100 MB video/audio).
+ * Uploading above these always fails on Cloudinary's side no matter what
+ * multer/nginx/express allow, so we check this ourselves first to fail fast
+ * with a clear message instead of a generic "Upload failed". Bump these if
+ * the Cloudinary plan is upgraded (see https://cloudinary.com/pricing/compare-plans). */
+const CLOUDINARY_SIZE_LIMITS = {
+  image: 10 * 1024 * 1024,
+  raw: 10 * 1024 * 1024,
+  video: 100 * 1024 * 1024, // Cloudinary stores audio under "video" too
+};
+
+/** Detects the Cloudinary resource_type ("image" | "video" | "raw") a file
+ * should upload as, based on mimetype/extension. Shared by the size check
+ * and the actual upload so they never disagree. */
+const getCloudinaryResourceType = (originalname, mimetype) => {
+  const extension = (originalname || "").split(".").pop()?.toLowerCase();
+  const rawFileExtensions = new Set(["zip", "rar", "psd", "ai", "eps"]);
+
+  if (rawFileExtensions.has(extension)) return "raw";
+  if (mimetype?.startsWith("image/")) return "image";
+  if (
+    mimetype?.startsWith("video/") ||
+    mimetype?.startsWith("audio/") ||
+    ["webm", "ogg", "mp3", "m4a", "wav", "aac", "opus"].includes(extension)
+  ) {
+    return "video";
+  }
+  return "raw"; // default: docs, PDFs, xlsx, etc.
+};
+
 /**
  * Upload task attachments (PDF, DOCX, XLSX, images, etc.)
  * - Detects resource_type from mimetype so PDFs go to /raw/ not /image/
  * - Sanitizes public_id to remove spaces/special chars (prevents browser corruption)
+ * - Rejects early (with a clear reason) if the file exceeds Cloudinary's
+ *   plan limit for that resource type, instead of letting Cloudinary itself
+ *   reject it with an opaque error after the file has already been read.
  */
 const uploadAttachmentOnCloudinary = async (file) => {
   if (!file) return null;
 
-  const { path, originalname, mimetype } = file;
+  const { path, originalname, mimetype, size } = file;
+  const resourceType = getCloudinaryResourceType(originalname, mimetype);
+
+  const limit = CLOUDINARY_SIZE_LIMITS[resourceType];
+  if (limit && size > limit) {
+    try {
+      fs.unlinkSync(path);
+    } catch (_) {}
+    const limitMb = Math.round(limit / (1024 * 1024));
+    const kindLabel = resourceType === "video" ? "Video/audio" : resourceType === "image" ? "Images" : "Documents/files";
+    return {
+      error: `${kindLabel} can be up to ${limitMb} MB on the current Cloudinary plan. This file is ${(
+        size /
+        (1024 * 1024)
+      ).toFixed(1)} MB.`,
+    };
+  }
 
   try {
-    const extension = originalname
-      .split(".")
-      .pop()
-      ?.toLowerCase();
-    const rawFileExtensions = new Set([
-      "zip",
-      "rar",
-      "psd",
-      "ai",
-      "eps",
-    ]);
-
-    // Determine correct resource_type
-    // Cloudinary stores audio under "video" resource type
-    let resourceType = "raw"; // default: docs, PDFs, xlsx, etc.
-    if (rawFileExtensions.has(extension)) resourceType = "raw";
-    else if (mimetype?.startsWith("image/")) resourceType = "image";
-    else if (
-      mimetype?.startsWith("video/") ||
-      mimetype?.startsWith("audio/") ||
-      ["webm", "ogg", "mp3", "m4a", "wav", "aac", "opus"].includes(extension)
-    ) {
-      resourceType = "video";
-    }
+    const extension = originalname.split(".").pop()?.toLowerCase();
 
     // Sanitize filename → safe public_id (no spaces, parens, special chars)
     // Raw files MUST keep the extension in public_id or downloads can corrupt
@@ -93,7 +120,7 @@ const uploadAttachmentOnCloudinary = async (file) => {
       access_mode: "public",
       type: "upload",
     });
-   
+
     try {
       fs.unlinkSync(path);
     } catch (_) {}
@@ -104,7 +131,19 @@ const uploadAttachmentOnCloudinary = async (file) => {
     try {
       if (path) fs.unlinkSync(path);
     } catch (_) {}
-    return null;
+    return { error: err?.message || "Upload failed" };
+  }
+};
+
+/** Best-effort delete of a single attachment from Cloudinary when a user
+ * removes it from a task. Non-fatal — a failure here shouldn't block the
+ * attachment being removed from the task document itself. */
+const deleteAttachmentFromCloudinary = async (publicId, resourceType = "raw") => {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch (err) {
+    console.error("Cloudinary attachment delete error:", err?.message || err);
   }
 };
 
@@ -233,6 +272,7 @@ export {
   uploadOnCloudinary,
   uploadBase64Image,
   uploadAttachmentOnCloudinary,
+  deleteAttachmentFromCloudinary,
   parseCloudinaryUrl,
   fetchAttachmentFromCloudinary,
 };

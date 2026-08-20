@@ -82,10 +82,7 @@ export const initSocket = (httpServer) => {
     });
   });
 
-  console.log(
-    "Socket.IO initialized. Allowed origins:",
-    allowedOrigins.join(", ")
-  );
+
   return io;
 };
 

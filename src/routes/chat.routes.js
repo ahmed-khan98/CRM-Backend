@@ -35,6 +35,9 @@ import {
   adminDisableChat,
   adminEnableChat,
   adminDeleteMessage,
+  getPushVapidPublicKey,
+  subscribePush,
+  unsubscribePush,
 } from "../controllers/chat.controller.js";
 
 const router = Router();
@@ -72,6 +75,10 @@ router.post("/upload", upload.single("file"), uploadChatAttachment);
 
 router.get("/calls", listCallLogs);
 router.get("/webrtc/ice", getIceServers);
+
+router.get("/push/vapid-key", getPushVapidPublicKey);
+router.post("/push/subscribe", subscribePush);
+router.post("/push/unsubscribe", unsubscribePush);
 
 router.get("/blocks", listBlockedUsers);
 router.post("/blocks", blockUser);

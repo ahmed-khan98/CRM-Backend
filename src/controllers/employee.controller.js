@@ -33,6 +33,8 @@ const pickHrmsFields = (body) => {
     fields.accountNumber = body.accountNumber || "";
   if (body.iban !== undefined) fields.iban = body.iban || "";
   if (body.ntn !== undefined) fields.ntn = body.ntn || "";
+  if (body.shiftStart !== undefined) fields.shiftStart = body.shiftStart || "";
+  if (body.shiftEnd !== undefined) fields.shiftEnd = body.shiftEnd || "";
 
   return fields;
 };
@@ -84,6 +86,15 @@ const createEmployee = asyncHandler(async (req, res) => {
   const existEmployee = await Employee.findOne({ CNIC });
   if (existEmployee) {
     throw new ApiError(409, "Employee CNIC already exists");
+  }
+
+  if (email) {
+    const existEmail = await Employee.findOne({
+      email: String(email).toLowerCase().trim(),
+    });
+    if (existEmail) {
+      throw new ApiError(409, "An employee with this email already exists");
+    }
   }
 
   const EmployeeImg = req.file;

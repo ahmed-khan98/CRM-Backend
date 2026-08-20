@@ -2,7 +2,11 @@ import { Task } from "../models/task.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadAttachmentOnCloudinary, fetchAttachmentFromCloudinary } from "../utils/cloudinary.js";
+import {
+  uploadAttachmentOnCloudinary,
+  deleteAttachmentFromCloudinary,
+  fetchAttachmentFromCloudinary,
+} from "../utils/cloudinary.js";
 import {
   isAdmin,
   getDepartmentTeamIds,
@@ -13,6 +17,27 @@ import { emitToUsers } from "../utils/socket.js";
 import { Notification } from "../models/notification.model.js";
 
 const attachmentUrl = (uploaded) => uploaded?.url || uploaded?.secure_url || null;
+
+/** Uploads every file in `files` to Cloudinary and returns the array of
+ * attachment sub-documents to push onto creatorAttachment/assigneeAttachment.
+ * Throws with the first failure's message (matches the single-file
+ * behaviour callers already expect for surfacing clear errors). */
+const uploadAttachments = async (files) => {
+  const results = [];
+  for (const file of files) {
+    const uploaded = await uploadAttachmentOnCloudinary(file);
+    if (uploaded?.error) throw new ApiError(413, uploaded.error);
+    const url = attachmentUrl(uploaded);
+    if (!url) throw new ApiError(500, "File upload failed");
+    results.push({
+      url,
+      originalName: file.originalname,
+      publicId: uploaded.public_id,
+      resourceType: uploaded.resource_type || "raw",
+    });
+  }
+  return results;
+};
 
 const isCreatorDepartmentMember = async (task, userId, userDeptId) => {
   if (!userDeptId || !task?.createdBy) return false;
@@ -129,17 +154,9 @@ const createTask = asyncHandler(async (req, res) => {
     createdBy: req.user?._id,
   });
 
-  if (req.file) {
-    const uploaded = await uploadAttachmentOnCloudinary(req.file);
-    const url = attachmentUrl(uploaded);
-    if (url) {
-      task.creatorAttachment = {
-        url,
-        originalName: req.file.originalname,
-        publicId: uploaded.public_id,
-      };
-      await task.save();
-    }
+  if (req.files?.length) {
+    task.creatorAttachment = await uploadAttachments(req.files);
+    await task.save();
   }
 
   if (assignees.length) {
@@ -211,24 +228,24 @@ const updateTask = asyncHandler(async (req, res) => {
     );
   }
 
-  const update = {};
-  if (title !== undefined) update.title = title;
-  if (description !== undefined) update.description = description;
-  if (priority) update.priority = priority;
-  if (assignees !== undefined) update.assignees = assignees;
-  if (dueDate !== undefined) update.dueDate = dueDate || null;
-  if (status) update.status = status;
+  const fields = {};
+  if (title !== undefined) fields.title = title;
+  if (description !== undefined) fields.description = description;
+  if (priority) fields.priority = priority;
+  if (assignees !== undefined) fields.assignees = assignees;
+  if (dueDate !== undefined) fields.dueDate = dueDate || null;
+  if (status) fields.status = status;
 
-  if (req.file) {
-    const uploaded = await uploadAttachmentOnCloudinary(req.file);
-    const url = attachmentUrl(uploaded);
-    if (url) {
-      update.creatorAttachment = {
-        url,
-        originalName: req.file.originalname,
-        publicId: uploaded.public_id,
-      };
-    }
+  let newCreatorAttachments = [];
+  if (req.files?.length) {
+    newCreatorAttachments = await uploadAttachments(req.files);
+  }
+
+  // Mongo update docs can't mix plain fields with operators like $push, so
+  // everything goes through explicit $set/$push instead.
+  const update = { $set: fields };
+  if (newCreatorAttachments.length) {
+    update.$push = { creatorAttachment: { $each: newCreatorAttachments } };
   }
 
   const previousAssigneeIds = (task.assignees || []).map((a) => a.toString());
@@ -391,21 +408,48 @@ const uploadCreatorAttachment = asyncHandler(async (req, res) => {
   if (!isAdmin(userRole) && !isCreator) {
     throw new ApiError(403, "Only the task creator, admin, or subadmin can upload the creator attachment");
   }
-  if (!req.file) throw new ApiError(400, "No file provided");
+  if (!req.files?.length) throw new ApiError(400, "No file provided");
 
-  const uploaded = await uploadAttachmentOnCloudinary(req.file);
-  const url = attachmentUrl(uploaded);
-  if (!url) throw new ApiError(500, "File upload failed");
+  const newAttachments = await uploadAttachments(req.files);
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
       id,
-      { creatorAttachment: { url, originalName: req.file.originalname, publicId: uploaded.public_id } },
+      { $push: { creatorAttachment: { $each: newAttachments } } },
       { new: true }
     )
   );
 
   return res.status(200).json(new ApiResponse(200, updated, "Creator attachment uploaded"));
+});
+
+// ─── DELETE a single creator attachment ──────────────────────
+const deleteCreatorAttachment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { publicId } = req.body;
+  const userId = req.user._id.toString();
+  const userRole = req.user.role?.toUpperCase();
+
+  const task = await Task.findById(id);
+  if (!task) throw new ApiError(404, "Task not found");
+
+  const isCreator = task.createdBy?.toString() === userId;
+  if (!isAdmin(userRole) && !isCreator) {
+    throw new ApiError(403, "Only the task creator, admin, or subadmin can remove the creator attachment");
+  }
+
+  const target = (task.creatorAttachment || []).find((a) => a.publicId === publicId);
+  if (target) await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+
+  const updated = await populateTask(
+    Task.findByIdAndUpdate(
+      id,
+      { $pull: { creatorAttachment: { publicId } } },
+      { new: true }
+    )
+  );
+
+  return res.status(200).json(new ApiResponse(200, updated, "Creator attachment removed"));
 });
 
 // ─── PATCH upload assignee attachment ────────────────────────
@@ -421,21 +465,48 @@ const uploadAssigneeAttachment = asyncHandler(async (req, res) => {
   if (!isAdmin(userRole) && !_isAssignee) {
     throw new ApiError(403, "Only assigned members can upload the assignee attachment");
   }
-  if (!req.file) throw new ApiError(400, "No file provided");
+  if (!req.files?.length) throw new ApiError(400, "No file provided");
 
-  const uploaded = await uploadAttachmentOnCloudinary(req.file);
-  const url = attachmentUrl(uploaded);
-  if (!url) throw new ApiError(500, "File upload failed");
+  const newAttachments = await uploadAttachments(req.files);
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
       id,
-      { assigneeAttachment: { url, originalName: req.file.originalname, publicId: uploaded.public_id } },
+      { $push: { assigneeAttachment: { $each: newAttachments } } },
       { new: true }
     )
   );
 
   return res.status(200).json(new ApiResponse(200, updated, "Assignee attachment uploaded"));
+});
+
+// ─── DELETE a single assignee attachment ─────────────────────
+const deleteAssigneeAttachment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { publicId } = req.body;
+  const userId = req.user._id.toString();
+  const userRole = req.user.role?.toUpperCase();
+
+  const task = await Task.findById(id);
+  if (!task) throw new ApiError(404, "Task not found");
+
+  const _isAssignee = task.assignees?.some((a) => a.toString() === userId);
+  if (!isAdmin(userRole) && !_isAssignee) {
+    throw new ApiError(403, "Only assigned members can remove the assignee attachment");
+  }
+
+  const target = (task.assigneeAttachment || []).find((a) => a.publicId === publicId);
+  if (target) await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+
+  const updated = await populateTask(
+    Task.findByIdAndUpdate(
+      id,
+      { $pull: { assigneeAttachment: { publicId } } },
+      { new: true }
+    )
+  );
+
+  return res.status(200).json(new ApiResponse(200, updated, "Assignee attachment removed"));
 });
 
 // ─── DELETE task ──────────────────────────────────────────────
@@ -600,5 +671,6 @@ const proxyAttachment = asyncHandler(async (req, res) => {
 export {
   getTasksByProject, getAllTasks, createTask, updateTask, updateTaskStatus,
   addComment, deleteComment, uploadCreatorAttachment, uploadAssigneeAttachment, deleteTask,
+  deleteCreatorAttachment, deleteAssigneeAttachment,
   proxyAttachment,
 };

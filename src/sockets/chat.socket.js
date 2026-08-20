@@ -8,6 +8,7 @@ import {
 import { Notification } from "../models/notification.model.js";
 import { Employee } from "../models/employee.model.js";
 import { emitToUser, emitToUsers } from "../utils/socket.js";
+import { sendPushToUser, sendCallEndedPush } from "../utils/webPush.js";
 import { chatService } from "../utils/chatService.js";
 import {
   getConversationForUser,
@@ -18,6 +19,27 @@ import {
 
 // callId -> { callerId, calleeIds, joinedIds, conversationId, callType, isGroupCall }
 const activeCalls = new Map();
+
+// `${recipientId}:${conversationId}` -> last time we pushed a live
+// chat notification for that pair. Used to throttle the real-time
+// toast/sound so a burst of messages doesn't spam one ping per message —
+// the underlying Notification row is still kept accurate every time.
+const lastChatNotifyAt = new Map();
+const CHAT_NOTIFY_THROTTLE_MS = 8000;
+
+/** Is this user's socket currently sitting in the conversation's room
+ * (i.e. they have that chat thread open right now)? If so, a separate
+ * notification toast/sound would just be noise — they already see the
+ * message live in the open thread. */
+function isUserInConversationRoom(io, conversationId, userId) {
+  const room = io.sockets.adapter.rooms.get(`conv:${conversationId}`);
+  if (!room) return false;
+  for (const socketId of room) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s && String(s.userId) === String(userId)) return true;
+  }
+  return false;
+}
 
 async function setPresence(userId, status, extra = {}) {
   const doc = await ChatPresence.findOneAndUpdate(
@@ -62,6 +84,20 @@ export function registerChatSockets(io, socket) {
       }
       await getConversationForUser(conversationId, userId);
       socket.join(`conv:${conversationId}`);
+
+      // Opening the thread means any pending chat notifications for it are
+      // effectively "seen" — clear them so the bell badge doesn't stay
+      // stuck showing messages the user already read in the chat itself.
+      Notification.updateMany(
+        {
+          recipient: userId,
+          conversationId,
+          type: { $in: ["CHAT_MESSAGE", "CHAT_MENTION"] },
+          isRead: false,
+        },
+        { $set: { isRead: true } }
+      ).catch(() => {});
+
       ack?.({ ok: true });
     } catch (err) {
       ack?.({ ok: false, error: err.message });
@@ -187,29 +223,72 @@ export function registerChatSockets(io, socket) {
         out
       );
 
-      // Notifications for offline / muted
+      // Notifications for offline / muted / not-currently-viewing recipients.
       const sender = await Employee.findById(userId).select("fullName").lean();
+      const preview = previewFromMessage(msg).body;
       for (const p of conv.participants) {
         const pid = p.userId.toString();
         if (pid === userId) continue;
         if (p.muted) continue;
+
+        // They already have this exact chat open — they'll see the message
+        // live, skip the notification entirely instead of spamming them.
+        if (isUserInConversationRoom(io, conv._id, pid)) continue;
+
         const isMention =
           Array.isArray(mentions) &&
           mentions.some((m) => m.toString() === pid);
-        const notif = await Notification.create({
-          recipient: pid,
-          title: isMention
-            ? "You were mentioned"
-            : conv.type === "group"
-              ? conv.name || "Group"
-              : sender?.fullName || "New message",
-          message: previewFromMessage(msg).body,
-          type: isMention ? "CHAT_MENTION" : "CHAT_MESSAGE",
-          conversationId: conv._id,
-          messageId: msg._id,
-          createdBy: userId,
-        });
-        emitToUser(pid, "notification:new", notif);
+        const type = isMention ? "CHAT_MENTION" : "CHAT_MESSAGE";
+        const title = isMention
+          ? "You were mentioned"
+          : conv.type === "group"
+            ? conv.name || "Group"
+            : sender?.fullName || "New message";
+
+        // Collapse consecutive unread messages from the same conversation
+        // into one notification row (bumping `count`) instead of creating
+        // a new one per message — keeps the bell list and unread count sane.
+        let notif = await Notification.findOneAndUpdate(
+          {
+            recipient: pid,
+            conversationId: conv._id,
+            type: { $in: ["CHAT_MESSAGE", "CHAT_MENTION"] },
+            isRead: false,
+          },
+          {
+            $set: {
+              title,
+              message: preview,
+              type,
+              messageId: msg._id,
+              createdBy: userId,
+            },
+            $inc: { count: 1 },
+          },
+          { new: true }
+        );
+        if (!notif) {
+          notif = await Notification.create({
+            recipient: pid,
+            title,
+            message: preview,
+            type,
+            conversationId: conv._id,
+            messageId: msg._id,
+            createdBy: userId,
+          });
+        }
+
+        // Throttle the live toast/sound ping — the DB row above is always
+        // kept up to date, but we don't need to push a socket event for
+        // every single message in a fast burst.
+        const throttleKey = `${pid}:${conv._id}`;
+        const now = Date.now();
+        const last = lastChatNotifyAt.get(throttleKey) || 0;
+        if (now - last >= CHAT_NOTIFY_THROTTLE_MS) {
+          lastChatNotifyAt.set(throttleKey, now);
+          emitToUser(pid, "notification:new", notif);
+        }
       }
 
       ack?.({ ok: true, message: out });
@@ -344,18 +423,33 @@ export function registerChatSockets(io, socket) {
           groupName,
           groupImage,
         });
+        const title = isGroupCall ? "Incoming group call" : "Incoming call";
+        const message = isGroupCall
+          ? `${caller?.fullName || "Someone"} is calling in ${groupName} (${log.callType})`
+          : `${caller?.fullName || "Someone"} is calling (${log.callType})`;
         const notif = await Notification.create({
           recipient: cid,
-          title: isGroupCall ? "Incoming group call" : "Incoming call",
-          message: isGroupCall
-            ? `${caller?.fullName || "Someone"} is calling in ${groupName} (${log.callType})`
-            : `${caller?.fullName || "Someone"} is calling (${log.callType})`,
+          title,
+          message,
           type: "INCOMING_CALL",
           conversationId: conv._id,
           callLogId: log._id,
           createdBy: userId,
         });
         emitToUser(cid, "notification:new", notif);
+
+        // Also push an OS-level notification — the in-app call popup only
+        // shows up while the PWA is the foreground tab/app. If the user has
+        // switched to another app (or the PWA got backgrounded/killed),
+        // this is the only thing that can still reach them.
+        sendPushToUser(cid, {
+          kind: "incoming_call",
+          title,
+          body: message,
+          callId: String(log._id),
+          conversationId: String(conv._id),
+          callType: log.callType,
+        }).catch(() => {});
       }
 
       ack?.({ ok: true, callId: log._id });
@@ -476,6 +570,7 @@ export function registerChatSockets(io, socket) {
             callId: log._id,
             reason: "answered_elsewhere",
           });
+          sendCallEndedPush(others, log._id).catch(() => {});
         }
       }
 
@@ -603,6 +698,7 @@ export function registerChatSockets(io, socket) {
         duration: log.duration,
         endedBy: uid,
       });
+      sendCallEndedPush(peers, log._id).catch(() => {});
 
       if (wasRinging) {
         for (const cid of log.calleeIds) {

@@ -32,12 +32,8 @@ router.route("/").get(checkRole(), getAllVehicles);
 router
   .route("/add")
   .post(checkRole(...allowRoles), vehicleMedia, createVehicle);
-router
-  .route("/:id/mileage")
-  .post(checkRole(...allowRoles), addMileage);
-router
-  .route("/:id/maintenance")
-  .post(checkRole(...allowRoles), addMaintenance);
+router.route("/:id/mileage").post(checkRole(...allowRoles), addMileage);
+router.route("/:id/maintenance").post(checkRole(...allowRoles), addMaintenance);
 router
   .route("/:id")
   .get(checkRole("ADMIN", "SUBADMIN", "HR_ADMIN"), getVehicleById)

@@ -68,6 +68,12 @@ const notificationSchema = new Schema(
       default: false,
       index: true,
     },
+    /** How many events (e.g. chat messages) got collapsed into this single
+     * notification row instead of creating a new one for each. */
+    count: {
+      type: Number,
+      default: 1,
+    },
   },
   { timestamps: true }
 );

@@ -11,11 +11,13 @@ import {
   presenceMemory,
 } from "../models/chat/chatPresence.model.js";
 import { Employee } from "../models/employee.model.js";
+import { PushSubscription } from "../models/pushSubscription.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadAttachmentOnCloudinary } from "../utils/cloudinary.js";
 import { emitToUser, emitToUsers, getIO } from "../utils/socket.js";
+import { getVapidPublicKey } from "../utils/webPush.js";
 import { chatService, MESSAGE_POPULATE } from "../utils/chatService.js";
 import { sanitizeChatText } from "../utils/sanitizeChat.js";
 import {
@@ -969,6 +971,7 @@ export const uploadChatAttachment = asyncHandler(async (req, res) => {
   if (!req.file) throw new ApiError(400, "File is required");
 
   const uploaded = await uploadAttachmentOnCloudinary(req.file);
+  if (uploaded?.error) throw new ApiError(413, uploaded.error);
   if (!uploaded?.url) throw new ApiError(500, "Upload failed");
 
   const mime = req.file.mimetype || "";
@@ -1129,6 +1132,39 @@ export const adminDeleteMessage = asyncHandler(async (req, res) => {
     });
   }
   return res.status(200).json(new ApiResponse(200, populated, "Message deleted"));
+});
+
+// ─── Web Push (background/closed-app call alerts) ──────────────────────────
+
+export const getPushVapidPublicKey = asyncHandler(async (req, res) => {
+  const key = getVapidPublicKey();
+  if (!key) throw new ApiError(500, "Push notifications not configured");
+  return res.status(200).json(new ApiResponse(200, { publicKey: key }));
+});
+
+export const subscribePush = asyncHandler(async (req, res) => {
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    throw new ApiError(400, "Invalid push subscription");
+  }
+  await PushSubscription.findOneAndUpdate(
+    { endpoint },
+    {
+      userId: req.user._id,
+      endpoint,
+      keys: { p256dh: keys.p256dh, auth: keys.auth },
+      userAgent: (req.headers["user-agent"] || "").slice(0, 300),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  return res.status(200).json(new ApiResponse(200, null, "Subscribed"));
+});
+
+export const unsubscribePush = asyncHandler(async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) throw new ApiError(400, "endpoint required");
+  await PushSubscription.deleteOne({ endpoint, userId: req.user._id });
+  return res.status(200).json(new ApiResponse(200, null, "Unsubscribed"));
 });
 
 /** Internal helper used by sockets — see utils/chatService.js */

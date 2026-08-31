@@ -2,11 +2,18 @@ import { Task } from "../models/task.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import fs from "fs";
 import {
   uploadAttachmentOnCloudinary,
   deleteAttachmentFromCloudinary,
   fetchAttachmentFromCloudinary,
 } from "../utils/cloudinary.js";
+import {
+  getArchiveLimitError,
+  isArchiveFile,
+  resolveLocalFile,
+  saveFileLocally,
+} from "../utils/localFileStore.js";
 import {
   isAdmin,
   getDepartmentTeamIds,
@@ -18,15 +25,21 @@ import { Notification } from "../models/notification.model.js";
 
 const attachmentUrl = (uploaded) => uploaded?.url || uploaded?.secure_url || null;
 
-/** Uploads every file in `files` to Cloudinary and returns the array of
- * attachment sub-documents to push onto creatorAttachment/assigneeAttachment.
- * Throws with the first failure's message (matches the single-file
- * behaviour callers already expect for surfacing clear errors). */
-const uploadAttachments = async (files) => {
+/** Uploads files: zip/rar/7z go to VPS disk, everything else to Cloudinary. */
+const uploadAttachments = async (files, req) => {
   const results = [];
   for (const file of files) {
-    const uploaded = await uploadAttachmentOnCloudinary(file);
-    if (uploaded?.error) throw new ApiError(413, uploaded.error);
+    const archiveError = getArchiveLimitError(file);
+    if (archiveError) throw new ApiError(413, archiveError);
+
+    let uploaded;
+    if (isArchiveFile(file.originalname, file.mimetype)) {
+      uploaded = saveFileLocally(file, req, "tasks");
+    } else {
+      uploaded = await uploadAttachmentOnCloudinary(file);
+      if (uploaded?.error) throw new ApiError(413, uploaded.error);
+    }
+
     const url = attachmentUrl(uploaded);
     if (!url) throw new ApiError(500, "File upload failed");
     results.push({
@@ -155,7 +168,7 @@ const createTask = asyncHandler(async (req, res) => {
   });
 
   if (req.files?.length) {
-    task.creatorAttachment = await uploadAttachments(req.files);
+    task.creatorAttachment = await uploadAttachments(req.files, req);
     await task.save();
   }
 
@@ -238,7 +251,7 @@ const updateTask = asyncHandler(async (req, res) => {
 
   let newCreatorAttachments = [];
   if (req.files?.length) {
-    newCreatorAttachments = await uploadAttachments(req.files);
+    newCreatorAttachments = await uploadAttachments(req.files, req);
   }
 
   // Mongo update docs can't mix plain fields with operators like $push, so
@@ -410,7 +423,7 @@ const uploadCreatorAttachment = asyncHandler(async (req, res) => {
   }
   if (!req.files?.length) throw new ApiError(400, "No file provided");
 
-  const newAttachments = await uploadAttachments(req.files);
+  const newAttachments = await uploadAttachments(req.files, req);
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
@@ -439,7 +452,9 @@ const deleteCreatorAttachment = asyncHandler(async (req, res) => {
   }
 
   const target = (task.creatorAttachment || []).find((a) => a.publicId === publicId);
-  if (target) await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+  if (target && !String(target.publicId || "").startsWith("local:")) {
+    await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+  }
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
@@ -467,7 +482,7 @@ const uploadAssigneeAttachment = asyncHandler(async (req, res) => {
   }
   if (!req.files?.length) throw new ApiError(400, "No file provided");
 
-  const newAttachments = await uploadAttachments(req.files);
+  const newAttachments = await uploadAttachments(req.files, req);
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
@@ -496,7 +511,9 @@ const deleteAssigneeAttachment = asyncHandler(async (req, res) => {
   }
 
   const target = (task.assigneeAttachment || []).find((a) => a.publicId === publicId);
-  if (target) await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+  if (target && !String(target.publicId || "").startsWith("local:")) {
+    await deleteAttachmentFromCloudinary(target.publicId, target.resourceType);
+  }
 
   const updated = await populateTask(
     Task.findByIdAndUpdate(
@@ -572,6 +589,7 @@ const MIME_BY_EXT = {
   webp: "image/webp",
   zip: "application/zip",
   rar: "application/vnd.rar",
+  "7z": "application/x-7z-compressed",
   psd: "image/vnd.adobe.photoshop",
   ai: "application/postscript",
   eps: "application/postscript",
@@ -609,6 +627,43 @@ const proxyAttachment = asyncHandler(async (req, res) => {
   }
 
   const decodedUrl = url ? decodeURIComponent(url).replace(/^http:\/\//i, "https://") : null;
+  const decodedPublicId = publicId ? decodeURIComponent(publicId) : undefined;
+  const localFile = resolveLocalFile({
+    url: decodedUrl,
+    publicId: decodedPublicId,
+  });
+
+  if (localFile) {
+    const safeName = sanitizeFilename(
+      filename ? decodeURIComponent(filename) : localFile.name
+    );
+    const ext = safeName.split(".").pop()?.toLowerCase();
+    const contentType = resolveContentType(safeName);
+    const forceDownload = [
+      "zip",
+      "rar",
+      "7z",
+      "psd",
+      "ai",
+      "eps",
+      "doc",
+      "docx",
+      "xls",
+      "xlsx",
+      "ppt",
+      "pptx",
+    ].includes(ext);
+    const disp =
+      forceDownload || disposition === "attachment" ? "attachment" : "inline";
+    const stat = fs.statSync(localFile.filePath);
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `${disp}; filename="${safeName}"`);
+    res.setHeader("Content-Length", stat.size);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return fs.createReadStream(localFile.filePath).pipe(res);
+  }
 
   if (decodedUrl && !isAllowedCloudinaryUrl(decodedUrl)) {
     throw new ApiError(403, "Invalid attachment URL");

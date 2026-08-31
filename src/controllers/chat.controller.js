@@ -16,6 +16,11 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadAttachmentOnCloudinary } from "../utils/cloudinary.js";
+import {
+  getArchiveLimitError,
+  isArchiveFile,
+  saveChatFileLocally,
+} from "../utils/localFileStore.js";
 import { emitToUser, emitToUsers, getIO } from "../utils/socket.js";
 import { getVapidPublicKey } from "../utils/webPush.js";
 import { chatService, MESSAGE_POPULATE } from "../utils/chatService.js";
@@ -970,9 +975,22 @@ export const uploadChatAttachment = asyncHandler(async (req, res) => {
   await assertCanUseChat(req.user._id);
   if (!req.file) throw new ApiError(400, "File is required");
 
-  const uploaded = await uploadAttachmentOnCloudinary(req.file);
-  if (uploaded?.error) throw new ApiError(413, uploaded.error);
-  if (!uploaded?.url) throw new ApiError(500, "Upload failed");
+  const archiveError = getArchiveLimitError(req.file);
+  if (archiveError) throw new ApiError(413, archiveError);
+
+  // Cloudinary free plan blocks or poorly handles zip/rar. Keep those on the VPS.
+  let uploaded;
+  if (isArchiveFile(req.file.originalname, req.file.mimetype)) {
+    uploaded = saveChatFileLocally(req.file, req);
+  } else {
+    uploaded = await uploadAttachmentOnCloudinary(req.file);
+    if (uploaded?.error || !(uploaded.url || uploaded.secure_url)) {
+      throw new ApiError(413, uploaded?.error || "Upload failed");
+    }
+  }
+
+  const fileUrl = uploaded.url || uploaded.secure_url;
+  if (!fileUrl) throw new ApiError(500, "Upload failed");
 
   const mime = req.file.mimetype || "";
   const name = (req.file.originalname || "").toLowerCase();
@@ -995,7 +1013,7 @@ export const uploadChatAttachment = asyncHandler(async (req, res) => {
       {
         type,
         attachment: {
-          url: uploaded.url,
+          url: fileUrl,
           publicId: uploaded.public_id || "",
           resourceType: uploaded.resource_type || "raw",
           fileName: req.file.originalname,

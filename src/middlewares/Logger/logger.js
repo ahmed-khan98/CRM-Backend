@@ -1,7 +1,10 @@
+import fs from "fs";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
 
 const { combine, timestamp, printf, colorize, json } = winston.format;
+
+fs.mkdirSync("logs", { recursive: true });
 
 // Custom log format (for console)
 const consoleFormat = printf(({ level, message, timestamp, ...meta }) => {

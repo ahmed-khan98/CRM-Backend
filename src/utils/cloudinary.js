@@ -117,9 +117,10 @@ const uploadAttachmentOnCloudinary = async (file) => {
       resource_type: resourceType,
       public_id: publicId,
       overwrite: false,
-      access_mode: "public",
-      type: "upload",
     });
+    if (result && !result.url && result.secure_url) {
+      result.url = result.secure_url;
+    }
 
     try {
       fs.unlinkSync(path);

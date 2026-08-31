@@ -1,10 +1,12 @@
 node_modules
 # Keep environment variables out of version control
 .env
-# public
+# public / runtime
 upload
+uploads/
 public/uploads/
 public/temp/
 logs/
 export/
+exports/
 *.zip

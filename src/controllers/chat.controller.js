@@ -164,7 +164,12 @@ export const listConversations = asyncHandler(async (req, res) => {
     convs.map(async (c) => {
       const latest = latestByConv.get(String(c._id));
       if (latest) {
-        const preview = previewFromMessage(latest);
+        const deletedForMe = (latest.deletedFor || []).some(
+          (id) => String(id) === String(userId)
+        );
+        const preview = deletedForMe
+          ? { body: "You deleted this message", type: "system" }
+          : previewFromMessage(latest);
         c = {
           ...c,
           lastMessage: {
@@ -175,6 +180,7 @@ export const listConversations = asyncHandler(async (req, res) => {
             senderId: c.lastMessage?.senderId || latest.senderId,
             createdAt: latest.createdAt,
             deletedForEveryone: Boolean(latest.deletedForEveryone),
+            deletedForMe,
           },
         };
       }
@@ -589,7 +595,6 @@ export const listMessages = asyncHandler(async (req, res) => {
 
   const filter = {
     conversationId: conv._id,
-    deletedFor: { $nin: [req.user._id] },
   };
 
   // Hide history before join (new group members) and/or after clear-chat
@@ -771,18 +776,19 @@ export const deleteMessage = asyncHandler(async (req, res) => {
   }
   const populated = await populateMessage(msg._id);
   const io = getIO();
-  if (io) {
-    io.to(`conv:${msg.conversationId}`).emit("chat:message:deleted", {
-      messageId: msg._id,
-      conversationId: msg.conversationId,
-      forEveryone,
-      message: sanitizeMessageForUser(populated, req.user._id),
-    });
-  }
+  const deletedPayload = {
+    messageId: msg._id,
+    conversationId: msg.conversationId,
+    forEveryone,
+    message: sanitizeMessageForUser(populated, req.user._id),
+  };
   if (forEveryone) {
+    if (io) io.to(`conv:${msg.conversationId}`).emit("chat:message:deleted", deletedPayload);
     emitToUsers(recipientIds(conv, "none"), "chat:conversation:updated", {
       _id: conv._id,
     });
+  } else {
+    emitToUser(req.user._id, "chat:message:deleted", deletedPayload);
   }
   return res.status(200).json(new ApiResponse(200, populated, "Message deleted"));
 });

@@ -72,7 +72,15 @@ export function sanitizeMessageForUser(msg, userId) {
   const deletedForMe = (msg.deletedFor || []).some(
     (id) => id.toString() === userId.toString()
   );
-  if (deletedForMe) return null;
+  if (deletedForMe) {
+    return {
+      ...msg,
+      body: "You deleted this message",
+      attachments: [],
+      type: "system",
+      deletedForMe: true,
+    };
+  }
   if (deletedForEveryone) {
     const placeholder =
       (msg.body && String(msg.body).trim()) ||

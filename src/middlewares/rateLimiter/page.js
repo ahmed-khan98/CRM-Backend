@@ -1,14 +1,15 @@
 import rateLimit from "express-rate-limit";
 
- const limiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 150, // max 150 requests per IP
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 150,
   message: {
     status: 429,
     message: "Too many requests, please try again later",
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.startsWith("/uploads/"),
 });
 
 const loginLimiter = rateLimit({

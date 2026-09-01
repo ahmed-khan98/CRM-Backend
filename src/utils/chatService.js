@@ -66,6 +66,7 @@ export async function latestMessageByConversationIds(conversationIds = []) {
         senderId: { $first: "$senderId" },
         createdAt: { $first: "$createdAt" },
         deletedForEveryone: { $first: "$deletedForEveryone" },
+        deletedFor: { $first: "$deletedFor" },
         attachments: { $first: "$attachments" },
       },
     },

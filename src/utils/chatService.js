@@ -35,12 +35,42 @@ export async function updateConversationLastMessage(conversationId, msg) {
   });
 }
 
-/** If the deleted message is the sidebar snapshot, rewrite that preview. */
-export async function syncLastMessageAfterDelete(conv, msg) {
-  const lastId = conv?.lastMessage?.messageId?.toString();
-  if (!lastId || lastId !== msg._id.toString()) return false;
-  await updateConversationLastMessage(conv._id, msg);
-  return true;
+/** Rebuild sidebar preview from the newest message (ignores stale messageId). */
+export async function refreshConversationLastMessage(conversationId) {
+  const latest = await ChatMessage.findOne({ conversationId }).sort({
+    createdAt: -1,
+    _id: -1,
+  });
+  if (!latest) {
+    await Conversation.findByIdAndUpdate(conversationId, {
+      $unset: { lastMessage: 1 },
+    });
+    return null;
+  }
+  await updateConversationLastMessage(conversationId, latest);
+  return latest;
+}
+
+export async function latestMessageByConversationIds(conversationIds = []) {
+  const ids = conversationIds.filter(Boolean);
+  if (!ids.length) return new Map();
+  const rows = await ChatMessage.aggregate([
+    { $match: { conversationId: { $in: ids } } },
+    { $sort: { createdAt: -1, _id: -1 } },
+    {
+      $group: {
+        _id: "$conversationId",
+        messageId: { $first: "$_id" },
+        body: { $first: "$body" },
+        type: { $first: "$type" },
+        senderId: { $first: "$senderId" },
+        createdAt: { $first: "$createdAt" },
+        deletedForEveryone: { $first: "$deletedForEveryone" },
+        attachments: { $first: "$attachments" },
+      },
+    },
+  ]);
+  return new Map(rows.map((row) => [String(row._id), row]));
 }
 
 export function recipientIds(conv, excludeUserId) {
@@ -52,7 +82,8 @@ export function recipientIds(conv, excludeUserId) {
 export const chatService = {
   populateMessage,
   updateConversationLastMessage,
-  syncLastMessageAfterDelete,
+  refreshConversationLastMessage,
+  latestMessageByConversationIds,
   recipientIds,
   previewFromMessage,
 };

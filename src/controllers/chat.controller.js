@@ -156,33 +156,25 @@ export const listConversations = asyncHandler(async (req, res) => {
     .populate("lastMessage.senderId", "fullName image")
     .lean();
 
-  const lastIds = convs.map((c) => c.lastMessage?.messageId).filter(Boolean);
-  const deletedLast = lastIds.length
-    ? await ChatMessage.find({
-        _id: { $in: lastIds },
-        deletedForEveryone: true,
-      })
-        .select("body deletedForEveryone type")
-        .lean()
-    : [];
-  const deletedLastById = new Map(
-    deletedLast.map((m) => [String(m._id), m])
+  const latestByConv = await chatService.latestMessageByConversationIds(
+    convs.map((c) => c._id)
   );
 
   const enriched = await Promise.all(
     convs.map(async (c) => {
-      const deletedSnap = deletedLastById.get(
-        String(c.lastMessage?.messageId || "")
-      );
-      if (deletedSnap) {
-        const preview = previewFromMessage(deletedSnap);
+      const latest = latestByConv.get(String(c._id));
+      if (latest) {
+        const preview = previewFromMessage(latest);
         c = {
           ...c,
           lastMessage: {
-            ...c.lastMessage,
+            ...(c.lastMessage || {}),
+            messageId: latest.messageId,
             body: preview.body,
             type: preview.type,
-            deletedForEveryone: true,
+            senderId: c.lastMessage?.senderId || latest.senderId,
+            createdAt: latest.createdAt,
+            deletedForEveryone: Boolean(latest.deletedForEveryone),
           },
         };
       }
@@ -775,7 +767,7 @@ export const deleteMessage = asyncHandler(async (req, res) => {
   }
   await msg.save();
   if (forEveryone) {
-    await chatService.syncLastMessageAfterDelete(conv, msg);
+    await chatService.refreshConversationLastMessage(conv._id);
   }
   const populated = await populateMessage(msg._id);
   const io = getIO();
@@ -1176,7 +1168,7 @@ export const adminDeleteMessage = asyncHandler(async (req, res) => {
   msg.attachments = [];
   await msg.save();
   const conv = await Conversation.findById(msg.conversationId);
-  if (conv) await chatService.syncLastMessageAfterDelete(conv, msg);
+  if (conv) await chatService.refreshConversationLastMessage(conv._id);
   const populated = await populateMessage(msg._id);
   const io = getIO();
   if (io) {

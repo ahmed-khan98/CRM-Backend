@@ -12,7 +12,8 @@ const whitelistedEmails = [
   "sarim.zia.ppi@gmail.com",
   "jasimzia@zytronworld.com",
   "kevinwaqar@zytronworld.com",
-  "raziahmed@zytronworld.com"
+  "raziahmed@zytronworld.com",
+  "muhammadsaad@zytronworld.com"
 ];
 
 export const restrictIP = asyncHandler(async (req, res, next) => {

@@ -64,6 +64,7 @@ const conversationSchema = new Schema(
       type: { type: String, default: "text" },
       senderId: { type: Schema.Types.ObjectId, ref: "Employee" },
       createdAt: { type: Date, default: null },
+      deletedForEveryone: { type: Boolean, default: false },
     },
     isDeleted: { type: Boolean, default: false },
   },

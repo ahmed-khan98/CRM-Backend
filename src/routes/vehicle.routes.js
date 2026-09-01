@@ -28,7 +28,7 @@ router
   .route("/available")
   .get(checkRole("ADMIN", "SUBADMIN", "HR_ADMIN"), getAvailableVehicles);
 
-router.route("/").get(checkRole(), getAllVehicles);
+router.route("/").get(checkRole("ADMIN", "SUBADMIN", "HR_ADMIN"), getAllVehicles);
 router
   .route("/add")
   .post(checkRole(...allowRoles), vehicleMedia, createVehicle);

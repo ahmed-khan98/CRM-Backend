@@ -28,10 +28,19 @@ export async function updateConversationLastMessage(conversationId, msg) {
         type: preview.type,
         senderId: msg.senderId,
         createdAt: msg.createdAt || new Date(),
+        deletedForEveryone: Boolean(msg.deletedForEveryone),
       },
     },
     updatedAt: new Date(),
   });
+}
+
+/** If the deleted message is the sidebar snapshot, rewrite that preview. */
+export async function syncLastMessageAfterDelete(conv, msg) {
+  const lastId = conv?.lastMessage?.messageId?.toString();
+  if (!lastId || lastId !== msg._id.toString()) return false;
+  await updateConversationLastMessage(conv._id, msg);
+  return true;
 }
 
 export function recipientIds(conv, excludeUserId) {
@@ -43,6 +52,7 @@ export function recipientIds(conv, excludeUserId) {
 export const chatService = {
   populateMessage,
   updateConversationLastMessage,
+  syncLastMessageAfterDelete,
   recipientIds,
   previewFromMessage,
 };

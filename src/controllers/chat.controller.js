@@ -156,8 +156,36 @@ export const listConversations = asyncHandler(async (req, res) => {
     .populate("lastMessage.senderId", "fullName image")
     .lean();
 
+  const lastIds = convs.map((c) => c.lastMessage?.messageId).filter(Boolean);
+  const deletedLast = lastIds.length
+    ? await ChatMessage.find({
+        _id: { $in: lastIds },
+        deletedForEveryone: true,
+      })
+        .select("body deletedForEveryone type")
+        .lean()
+    : [];
+  const deletedLastById = new Map(
+    deletedLast.map((m) => [String(m._id), m])
+  );
+
   const enriched = await Promise.all(
     convs.map(async (c) => {
+      const deletedSnap = deletedLastById.get(
+        String(c.lastMessage?.messageId || "")
+      );
+      if (deletedSnap) {
+        const preview = previewFromMessage(deletedSnap);
+        c = {
+          ...c,
+          lastMessage: {
+            ...c.lastMessage,
+            body: preview.body,
+            type: preview.type,
+            deletedForEveryone: true,
+          },
+        };
+      }
       const me = c.participants.find(
         (p) => p.userId?._id?.toString() === userId.toString()
       );
@@ -746,6 +774,9 @@ export const deleteMessage = asyncHandler(async (req, res) => {
     }
   }
   await msg.save();
+  if (forEveryone) {
+    await chatService.syncLastMessageAfterDelete(conv, msg);
+  }
   const populated = await populateMessage(msg._id);
   const io = getIO();
   if (io) {
@@ -754,6 +785,11 @@ export const deleteMessage = asyncHandler(async (req, res) => {
       conversationId: msg.conversationId,
       forEveryone,
       message: sanitizeMessageForUser(populated, req.user._id),
+    });
+  }
+  if (forEveryone) {
+    emitToUsers(recipientIds(conv, "none"), "chat:conversation:updated", {
+      _id: conv._id,
     });
   }
   return res.status(200).json(new ApiResponse(200, populated, "Message deleted"));
@@ -1139,6 +1175,8 @@ export const adminDeleteMessage = asyncHandler(async (req, res) => {
   msg.body = `${deleterName} deleted this message`;
   msg.attachments = [];
   await msg.save();
+  const conv = await Conversation.findById(msg.conversationId);
+  if (conv) await chatService.syncLastMessageAfterDelete(conv, msg);
   const populated = await populateMessage(msg._id);
   const io = getIO();
   if (io) {
@@ -1147,6 +1185,11 @@ export const adminDeleteMessage = asyncHandler(async (req, res) => {
       conversationId: msg.conversationId,
       forEveryone: true,
       message: sanitizeMessageForUser(populated, req.user._id),
+    });
+  }
+  if (conv) {
+    emitToUsers(recipientIds(conv, "none"), "chat:conversation:updated", {
+      _id: conv._id,
     });
   }
   return res.status(200).json(new ApiResponse(200, populated, "Message deleted"));

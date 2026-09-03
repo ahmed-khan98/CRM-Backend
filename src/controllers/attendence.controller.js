@@ -21,11 +21,11 @@ const TimeIn = asyncHandler(async (req, res) => {
   const nowPKT = nowInPKT();
   const currentHour = nowPKT.hour();
 
-  if (currentHour >= 6 && currentHour < 19)
-    throw new ApiError(
-      400,
-      "Shift timing has not started yet. You can only Time-In after 07:00 PM.",
-    );
+  // if (currentHour >= 6 && currentHour < 19)
+  //   throw new ApiError(
+  //     400,
+  //     "Shift timing has not started yet. You can only Time-In after 07:00 PM.",
+  //   );
 
   // Midnight logic: 12AM–6AM → assign to previous date
   const shiftDate =

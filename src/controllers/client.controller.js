@@ -158,7 +158,10 @@ const getAllClients = asyncHandler(async (req, res) => {
 
 const getClientById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const client = await Client.findById(id);
+  const client = await Client.findById(id)
+    .populate("handleBy", "fullName email")
+    .populate("brandId", "name")
+    .populate("departmentId", "name");
   if (!client) {
     throw new ApiError(404, "Client not found");
     // return res.status(404).json({ error: 'Client not found' });

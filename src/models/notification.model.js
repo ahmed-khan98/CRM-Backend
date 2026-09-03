@@ -30,6 +30,7 @@ const notificationSchema = new Schema(
         "CHAT_GROUP",
         "MISSED_CALL",
         "INCOMING_CALL",
+        "LEAD_SCHEDULE",
       ],
       default: "GENERAL",
     },
@@ -56,6 +57,11 @@ const notificationSchema = new Schema(
     callLogId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CallLog",
+      default: null,
+    },
+    leadId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lead",
       default: null,
     },
     createdBy: {

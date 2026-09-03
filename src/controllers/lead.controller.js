@@ -8,6 +8,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { mapLastAction, mapPaid } from "../utils/map.js";
 import { loose, norm } from "../utils/normalize.js";
 import { promises as fsp } from "node:fs";
+import { normalizeLastAction } from "../utils/normalizeLastAction.js";
 import xlsx from "xlsx";
 
 function findAgentId(agentName, employees, empStrict, empLoose) {
@@ -57,6 +58,36 @@ function findBrandInfo(brandName, brands, brandStrict, brandLoose) {
     };
   }
   return null;
+}
+
+function buildLeadListFilter(req) {
+  const base = { ...req.roleFilter };
+  const { search, lastAction, paidStatus, brandId } = req.query;
+
+  if (brandId && brandId !== "all") {
+    base.brandId = brandId;
+  }
+
+  if (paidStatus && paidStatus !== "all") {
+    base.paidStatus = paidStatus;
+  }
+
+  if (lastAction && lastAction !== "all") {
+    base.lastAction = normalizeLastAction(lastAction);
+  }
+
+  if (search?.trim()) {
+    const term = search.trim();
+    base.$or = [
+      { name: { $regex: term, $options: "i" } },
+      { email: { $regex: term, $options: "i" } },
+      { phoneNo: { $regex: term, $options: "i" } },
+      { serialNo: { $regex: term, $options: "i" } },
+      { brandMark: { $regex: term, $options: "i" } },
+    ];
+  }
+
+  return base;
 }
 
 const createLead = asyncHandler(async (req, res) => {
@@ -235,6 +266,48 @@ const updateActionLead = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, lead, "Lead updated Successfully"));
 });
 
+const updateLead = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    phoneNo,
+    email,
+    departmentId,
+    brandId,
+    serialNo,
+    brandMark,
+    paidStatus,
+  } = req.body;
+
+  const existLead = await Lead.findById(id);
+  if (!existLead) {
+    throw new ApiError(404, "Lead not found");
+  }
+
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (phoneNo !== undefined) updates.phoneNo = phoneNo;
+  if (email !== undefined) updates.email = email;
+  if (departmentId !== undefined) updates.departmentId = departmentId;
+  if (brandId !== undefined) updates.brandId = brandId;
+  if (serialNo !== undefined) updates.serialNo = serialNo;
+  if (brandMark !== undefined) updates.brandMark = brandMark;
+  if (paidStatus !== undefined) updates.paidStatus = paidStatus;
+
+  const lead = await Lead.findByIdAndUpdate(
+    id,
+    { $set: updates },
+    { new: true, runValidators: true },
+  )
+    .populate("departmentId", "name")
+    .populate("brandId", "name")
+    .populate("agent", "fullName");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, lead, "Lead updated successfully"));
+});
+
 const deleteLead = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -273,8 +346,10 @@ const getAllLeads = asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
 
+  const listFilter = buildLeadListFilter(req);
+
   const [items, total] = await Promise.all([
-    Lead.find({ ...req.roleFilter })
+    Lead.find(listFilter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -282,7 +357,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       .populate("brandId", "name")
       .populate("agent", "fullName")
       .lean(),
-    Lead.countDocuments({ ...req.roleFilter }),
+    Lead.countDocuments(listFilter),
   ]);
 
   const leadsWithLastComment = await Promise.all(
@@ -295,7 +370,7 @@ const getAllLeads = asyncHandler(async (req, res) => {
       return {
         ...lead,
         lastComment: lastComment ? lastComment.lastComment : null,
-        lastAction: lastComment ? lastComment.lastAction : null,
+        lastAction: lastComment ? lastComment.lastAction : lead.lastAction,
         scheduleDate: lastComment ? lastComment.scheduleDate : null,
         lastActionCreateAt: lastComment ? lastComment.createdAt : null,
         userId: lastComment ? lastComment.userId?.fullName : null,
@@ -333,16 +408,19 @@ const getAllLeadsByBrandId = asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
   const skip = (page - 1) * limit;
 
+  const listFilter = buildLeadListFilter(req);
+  listFilter.brandId = brandId;
+
   const [items, total] = await Promise.all([
-    Lead.find({ brandId })
+    Lead.find(listFilter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .populate("departmentId", "name")
       .populate("brandId", "name")
-      // .populate("agent", "fullName"),
+      .populate("agent", "fullName")
       .lean(),
-    Lead.countDocuments({ brandId }),
+    Lead.countDocuments(listFilter),
   ]);
 
   const leadsWithLastComment = await Promise.all(
@@ -420,6 +498,7 @@ const getLeadByDepartId = asyncHandler(async (req, res) => {
 export {
   createLead,
   getAllLeads,
+  updateLead,
   updateActionLead,
   deleteLead,
   getLeadById,

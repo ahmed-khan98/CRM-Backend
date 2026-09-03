@@ -52,9 +52,10 @@ const conversationSchema = new Schema(
       validate: {
         validator(v) {
           if (this.isDeleted) return Array.isArray(v);
-          return Array.isArray(v) && v.length >= 2;
+          // Direct self-chat may have 1 participant; groups enforce >=2 in controller
+          return Array.isArray(v) && v.length >= 1;
         },
-        message: "Conversation needs at least 2 participants",
+        message: "Conversation needs at least 1 participant",
       },
     },
     createdBy: { type: Schema.Types.ObjectId, ref: "Employee" },

@@ -2,6 +2,7 @@ import { Notification } from "../models/notification.model.js";
 import { Project } from "../models/project.model.js";
 import { Employee } from "../models/employee.model.js";
 import { emitToUser } from "./socket.js";
+import { sendPushToUser } from "./webPush.js";
 
 const toId = (value) => {
   if (!value) return null;
@@ -33,7 +34,7 @@ const STATUS_LABELS = {
 const formatStatus = (status) => STATUS_LABELS[status] || status || "Unknown";
 
 /**
- * Create DB notifications + emit real-time socket events.
+ * Create DB notifications + emit real-time socket events + OS push.
  * Skips the actor. Fire-and-forget safe.
  */
 const createAndEmitNotifications = async ({
@@ -68,7 +69,7 @@ const createAndEmitNotifications = async ({
   const created = await Notification.insertMany(docs);
 
   created.forEach((doc) => {
-    emitToUser(doc.recipient, "notification:new", {
+    const payload = {
       _id: doc._id,
       title: doc.title,
       message: doc.message,
@@ -83,7 +84,20 @@ const createAndEmitNotifications = async ({
       projectIdPopulated: project
         ? { _id: project._id, name: project.name }
         : null,
-    });
+    };
+
+    emitToUser(doc.recipient, "notification:new", payload);
+
+    // OS notification when tab is closed / backgrounded
+    sendPushToUser(doc.recipient, {
+      kind: "app_notification",
+      type: doc.type,
+      title: doc.title,
+      body: doc.message,
+      message: doc.message,
+      taskId: doc.taskId ? String(doc.taskId) : null,
+      projectId: doc.projectId ? String(doc.projectId) : null,
+    }).catch(() => {});
   });
 };
 

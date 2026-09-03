@@ -288,6 +288,14 @@ export function registerChatSockets(io, socket) {
         if (now - last >= CHAT_NOTIFY_THROTTLE_MS) {
           lastChatNotifyAt.set(throttleKey, now);
           emitToUser(pid, "notification:new", notif);
+          sendPushToUser(pid, {
+            kind: "app_notification",
+            type: notif.type,
+            title: notif.title,
+            body: notif.message,
+            message: notif.message,
+            conversationId: String(conv._id),
+          }).catch(() => {});
         }
       }
 

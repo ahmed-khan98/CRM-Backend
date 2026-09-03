@@ -8,6 +8,8 @@ import jwt from "jsonwebtoken";
 import { Attendance } from "../models/attendence.model.js";
 import moment from "moment-timezone";
 import { Break } from "../models/break.model.js";
+import crypto from "crypto";
+import { sendPasswordResetEmail } from "../utils/passwordResetEmail.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -291,8 +293,6 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Avatar file is missing");
   }
 
-  //TODO: delete old image - assignment
-
   const avatar = await uploadOnCloudinary(avatarLocalPath);
 
   if (!avatar.url) {
@@ -306,7 +306,7 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
         image: avatar.url,
       },
     },
-    { new: true }
+    { new: true },
   ).select("-password");
 
   return res
@@ -314,7 +314,70 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Avatar image updated successfully"));
 });
 
+const forgetPassword = asyncHandler(async (req, res) => {
+  const email = req.body?.email?.trim()?.toLowerCase();
 
+  if (!email) {
+    throw new ApiError(400, "Email is required");
+  }
+
+  const user = await Employee.findOne({ email, status: "active" });
+
+  // Always return success — do not reveal whether the account exists.
+  const genericMessage =
+    "If an account exists for this email, a reset code has been sent.";
+
+  if (!user) {
+    return res.status(200).json(new ApiResponse(200, null, genericMessage));
+  }
+
+  const code = String(crypto.randomInt(100000, 999999));
+  user.resetToken = code;
+  user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000);
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    await sendPasswordResetEmail(user.email, code);
+  } catch (err) {
+    console.error("Password reset email failed:", err?.message || err);
+  }
+
+  return res.status(200).json(new ApiResponse(200, null, genericMessage));
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const { code, password, confirmPassword } = req.body;
+
+  if (!code || !password || !confirmPassword) {
+    throw new ApiError(400, "Code, password, and confirmation are required");
+  }
+
+  if (password !== confirmPassword) {
+    throw new ApiError(400, "Passwords do not match");
+  }
+
+  if (password.length < 8) {
+    throw new ApiError(400, "Password must be at least 8 characters");
+  }
+
+  const user = await Employee.findOne({
+    resetToken: String(code).trim(),
+    resetTokenExpires: { $gt: new Date() },
+  });
+
+  if (!user) {
+    throw new ApiError(400, "Invalid or expired reset code");
+  }
+
+  user.password = password;
+  user.resetToken = undefined;
+  user.resetTokenExpires = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "Password reset successfully"));
+});
 
 export {
   registerUser,
@@ -325,5 +388,6 @@ export {
   getCurrentUser,
   updateAccountDetails,
   updateUserAvatar,
-
+  forgetPassword,
+  resetPassword,
 };

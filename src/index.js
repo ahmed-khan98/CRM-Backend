@@ -4,6 +4,7 @@ import http from "http"
 import connectDB from "./db/index.js";
 import {app} from './app.js'
 import { initSocket } from "./utils/socket.js"
+import { startLeadScheduleReminderCron } from "./utils/leadScheduleCron.js"
 
 dotenv.config({
     path: './.env'
@@ -26,6 +27,7 @@ connectDB()
 .then(() => {
     const server = http.createServer(app);
     initSocket(server);
+    startLeadScheduleReminderCron();
 
     server.listen(process.env.PORT , () => {
         console.log(`⚙️ Server is running at port :${process.env.PORT}`);

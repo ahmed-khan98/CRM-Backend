@@ -18,6 +18,7 @@ const leadComment = new Schema({
       "no answer",
       "interested",
       "not interested",
+      "non interested",
       "in loop",
       "invalid",
       "schedule",
@@ -26,6 +27,7 @@ const leadComment = new Schema({
     default: "no action",
   },
   scheduleDate: { type: Date },
+  reminderSentAt: { type: Date, default: null },
   loopFromDate: { type: Date },
   loopToDate: { type: Date },
   lastComment: { type: String,required: true,trim: true, },
@@ -35,5 +37,9 @@ const leadComment = new Schema({
     default: Date.now,
   },
 });
+
+// Fast lookup for schedule reminder cron
+leadComment.index({ lastAction: 1, scheduleDate: 1, reminderSentAt: 1 });
+leadComment.index({ leadId: 1, createdAt: -1 });
 
 export const LeadComment = mongoose.model("LeadComment", leadComment);

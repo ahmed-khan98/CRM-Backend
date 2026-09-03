@@ -345,7 +345,7 @@ const getPaymentLinksByBrandId = asyncHandler(async (req, res) => {
 });
 
 const getPaymentLinkById = asyncHandler(async (req, res) => {
-  const id = req.params.id || req.params.leadId;
+  const id = req.params.id;
 
   const link = await PaymentLink.findById(id)
     .populate("leadId", "name")
@@ -643,6 +643,45 @@ const statusChange = asyncHandler(async (req, res) => {
     );
 });
 
+const getPaymentLinksByLeadId = asyncHandler(async (req, res) => {
+  const { leadId } = req.params;
+
+  const items = await PaymentLink.find({ leadId })
+    .sort({ createdAt: -1 })
+    .populate("brandId", "name")
+    .populate("clientId", "name email")
+    .populate("agent", "fullName")
+    .populate("seller", "fullName")
+    .lean();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, items, "Lead payment links found"));
+});
+
+const getPaymentLinksByClientId = asyncHandler(async (req, res) => {
+  const { clientId } = req.params;
+
+  const sales = await Sale.find({ clientId })
+    .sort({ saleDate: -1 })
+    .populate("brandId", "name")
+    .populate("departmentId", "name")
+    .populate("seller", "fullName")
+    .populate("agent", "fullName")
+    .limit(100)
+    .lean();
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { sales },
+        "Client activity found",
+      ),
+    );
+});
+
 export {
   createPaymentLink,
   getAllPaymentLinks,
@@ -650,6 +689,8 @@ export {
   deletePaymentLink,
   getPaymentLinkById,
   getPaymentLinksByBrandId,
+  getPaymentLinksByLeadId,
+  getPaymentLinksByClientId,
   createPaypalOrderLinkById,
   paymentChargerByOrderId,
   statusChange,

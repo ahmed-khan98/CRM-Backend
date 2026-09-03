@@ -5,6 +5,8 @@ import {
   deletePaymentLink,
   getAllPaymentLinks,
   getPaymentLinksByBrandId,
+  getPaymentLinksByLeadId,
+  getPaymentLinksByClientId,
   getPaymentLinkById,
   updatePaymentLink,
   createPaypalOrderLinkById,
@@ -24,13 +26,15 @@ router.route("/").get(verifyJWT,checkRole(...allowRoles),filterByRole,getAllPaym
 router.route("/add").post(verifyJWT,checkRole(...allowRoles),createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
+router.route("/lead/:leadId/payments").get(verifyJWT, checkRole(...allowRoles), getPaymentLinksByLeadId);
+router.route("/client/:clientId/activity").get(verifyJWT, checkRole(...allowRoles), getPaymentLinksByClientId);
+router.route("/:brandId/brandPaymentLink").get(verifyJWT,getPaymentLinksByBrandId);
+router.route("/:leadId/leadPaymentLink").get(verifyJWT, checkRole(...allowRoles), getPaymentLinksByLeadId);
 router
   .route("/:id")
   .delete(verifyJWT,checkRole("ADMIN","SUBADMIN"),deletePaymentLink)
   .get(getPaymentLinkById)
   .patch(verifyJWT,checkRole(...allowRoles),updatePaymentLink);
-router.route("/:brandId/brandPaymentLink").get(verifyJWT,getPaymentLinksByBrandId);
-router.route("/:leadId/leadPaymentLink").get(verifyJWT,getPaymentLinkById);
 router.route("/:id/status").patch(verifyJWT,checkRole(...allowRoles),filterByRole,statusChange);
 
 export default router;

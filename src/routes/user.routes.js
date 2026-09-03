@@ -7,7 +7,9 @@ import {
     changeCurrentPassword, 
     getCurrentUser, 
     updateUserAvatar,
-    updateAccountDetails, 
+    updateAccountDetails,
+    // forgetPassword,
+    // resetPassword,
 } from "../controllers/user.controller.js";
 import {upload} from "../middlewares/multer.middleware.js"
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -17,6 +19,9 @@ const   router = Router()
 
 router.route("/register").post(upload.single("avatar"),registerUser)
 router.route("/userLogin").post(loginLimiter,loginUser)
+// Temporarily disabled — re-enable when email reset is ready again
+// router.route("/forget-password").post(forgetPassword)
+// router.route("/reset-password").post(resetPassword)
 
 //secured routes
 router.route("/logout").post(verifyJWT,  logoutUser)

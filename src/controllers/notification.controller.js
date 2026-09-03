@@ -13,6 +13,8 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     .populate("createdBy", "fullName image")
     .populate("projectId", "name")
     .populate("taskId", "title status")
+    .populate("leadId", "name email")
+    .populate("conversationId", "name type")
     .lean();
 
   return res

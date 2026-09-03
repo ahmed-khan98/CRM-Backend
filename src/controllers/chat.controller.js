@@ -78,6 +78,27 @@ export const searchChatUsers = asyncHandler(async (req, res) => {
     isOnline: presenceMemory.isOnline(u._id),
   }));
 
+  // WhatsApp-style "Me" / Message yourself — show when search is empty
+  // or matches me / myself / note / own name / email
+  const me = await Employee.findById(req.user._id)
+    .select(USER_PUBLIC_SELECT)
+    .lean();
+  if (me) {
+    const qLower = q.toLowerCase();
+    const showMe =
+      !q ||
+      ["me", "myself", "note", "notes"].includes(qLower) ||
+      (me.fullName || "").toLowerCase().includes(qLower) ||
+      (me.email || "").toLowerCase().includes(qLower);
+    if (showMe) {
+      withPresence.unshift({
+        ...me,
+        isOnline: true,
+        isMe: true,
+      });
+    }
+  }
+
   return res
     .status(200)
     .json(new ApiResponse(200, withPresence, "Users fetched"));
@@ -238,33 +259,51 @@ export const createDirectConversation = asyncHandler(async (req, res) => {
   await assertCanUseChat(req.user._id);
   const { userId } = req.body;
   if (!userId) throw new ApiError(400, "userId is required");
-  if (userId.toString() === req.user._id.toString()) {
-    throw new ApiError(400, "Cannot chat with yourself");
-  }
-  await assertCanUseChat(userId);
-  if (await areUsersBlocked(req.user._id, userId)) {
-    throw new ApiError(403, "Unable to start chat with this user");
+
+  const isSelf = userId.toString() === req.user._id.toString();
+
+  if (!isSelf) {
+    await assertCanUseChat(userId);
+    if (await areUsersBlocked(req.user._id, userId)) {
+      throw new ApiError(403, "Unable to start chat with this user");
+    }
   }
 
   const directKey = makeDirectKey(req.user._id, userId);
   let conv = await Conversation.findOne({ directKey, isDeleted: false });
   if (!conv) {
-    conv = await Conversation.create({
-      type: "direct",
-      directKey,
-      participants: [
-        { userId: req.user._id, role: "member" },
-        { userId, role: "member" },
-      ],
-      createdBy: req.user._id,
-    });
-  } else {
-    // Re-opening a chat that was deleted-for-me
-    const me = getParticipant(conv, req.user._id);
-    if (me?.hidden) {
-      me.hidden = false;
-      await conv.save();
+    try {
+      conv = await Conversation.create({
+        type: "direct",
+        directKey,
+        // Self-chat ("Message yourself"): single participant — like WhatsApp Notes
+        participants: isSelf
+          ? [{ userId: req.user._id, role: "member" }]
+          : [
+              { userId: req.user._id, role: "member" },
+              { userId, role: "member" },
+            ],
+        createdBy: req.user._id,
+      });
+    } catch (err) {
+      // Race: another request created the same directKey
+      if (err?.code === 11000) {
+        conv = await Conversation.findOne({ directKey, isDeleted: false });
+      }
+      if (!conv) {
+        if (err?.name === "ValidationError") {
+          throw new ApiError(400, err.message || "Invalid conversation");
+        }
+        throw err;
+      }
     }
+  }
+
+  // Re-opening a chat that was deleted-for-me
+  const me = getParticipant(conv, req.user._id);
+  if (me?.hidden) {
+    me.hidden = false;
+    await conv.save();
   }
 
   const populated = await populateConversation(conv);

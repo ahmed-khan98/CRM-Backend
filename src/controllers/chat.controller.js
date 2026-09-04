@@ -1067,14 +1067,15 @@ export const uploadChatAttachment = asyncHandler(async (req, res) => {
 
   const mime = req.file.mimetype || "";
   const name = (req.file.originalname || "").toLowerCase();
-  const isVoiceName = name.startsWith("voice-") || name.includes("voice");
+  // Only treat explicit voice recordings as voice (voice-*.webm from recorder)
+  const isVoiceName = /^voice[-_]/.test(name);
   const isAudioExt = /\.(webm|ogg|mp3|m4a|wav|aac|opus)$/i.test(name);
   const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
 
   let type = "file";
   if (mime.startsWith("image/")) type = "image";
   else if (mime.startsWith("video/") && !mime.startsWith("audio/")) type = "video";
-  else if (mime.startsWith("audio/") || isAudioExt || isVoiceName) {
+  else if (mime.startsWith("audio/") || (isAudioExt && !isPdf)) {
     type = isVoiceName ? "voice" : "audio";
   } else if (isPdf) {
     type = "file";

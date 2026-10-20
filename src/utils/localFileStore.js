@@ -1,10 +1,23 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
 const UPLOAD_ROOT = path.resolve("public/uploads");
-const FOLDERS = new Set(["chat", "tasks"]);
+const FOLDERS = new Set(["chat", "tasks", "employee"]);
 const ARCHIVE_EXTS = new Set(["zip", "rar", "7z", "tar", "gz"]);
-const ARCHIVE_LIMIT = 50 * 1024 * 1024;
+const ARCHIVE_LIMIT = 100 * 1024 * 1024;
+
+/** Unique disk filename → unique public URL. Never reuses a name. */
+function uniqueUploadName(originalname = "") {
+  const ext = path.extname(originalname || "").toLowerCase().slice(0, 20);
+  const safeExt = /^\.[a-z0-9.]+$/i.test(ext) ? ext : "";
+  return `${Date.now()}_${crypto.randomUUID()}${safeExt}`;
+}
+
+/** Public static uploads root (`/uploads` / `public/uploads`). */
+export function getUploadsRoot() {
+  return UPLOAD_ROOT;
+}
 
 function dirFor(folder) {
   return path.join(UPLOAD_ROOT, folder);
@@ -25,7 +38,7 @@ export function isArchiveFile(originalname = "", mimetype = "") {
 export function getArchiveLimitError(file) {
   if (!file || !isArchiveFile(file.originalname, file.mimetype)) return null;
   if ((file.size || 0) <= ARCHIVE_LIMIT) return null;
-  return `ZIP/archives can be up to 50 MB on the server. This file is ${(
+  return `ZIP/archives can be up to 100 MB on the server. This file is ${(
     file.size /
     (1024 * 1024)
   ).toFixed(1)} MB.`;
@@ -44,13 +57,16 @@ export function saveFileLocally(file, req, folder = "chat") {
   if (!FOLDERS.has(folder)) throw new Error("Invalid upload folder");
 
   const destDir = ensureUploadDir(folder);
-  const ext = path.extname(file.originalname || "") || "";
-  const base = path
-    .basename(file.originalname || "file", ext)
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .slice(0, 40);
-  const name = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${base}${ext}`;
-  const dest = path.join(destDir, name);
+  let name = uniqueUploadName(file.originalname);
+  let dest = path.join(destDir, name);
+  // Extremely unlikely; regenerate if the path already exists
+  for (let i = 0; i < 3 && fs.existsSync(dest); i += 1) {
+    name = uniqueUploadName(file.originalname);
+    dest = path.join(destDir, name);
+  }
+  if (fs.existsSync(dest)) {
+    throw new Error("Could not allocate a unique upload filename");
+  }
 
   fs.copyFileSync(file.path, dest);
   try {
@@ -70,6 +86,11 @@ export function saveChatFileLocally(file, req) {
   return saveFileLocally(file, req, "chat");
 }
 
+/** Employee profile photos → `public/uploads/employee/`. */
+export function saveEmployeeImageLocally(file, req) {
+  return saveFileLocally(file, req, "employee");
+}
+
 export function resolveLocalFile({ url, publicId } = {}) {
   let folder = "";
   let name = "";
@@ -84,7 +105,7 @@ export function resolveLocalFile({ url, publicId } = {}) {
   } else if (url) {
     try {
       const pathname = new URL(url, "https://local").pathname;
-      const match = pathname.match(/^\/uploads\/(chat|tasks)\/([^/]+)$/);
+      const match = pathname.match(/^\/uploads\/(chat|tasks|employee)\/([^/]+)$/);
       if (match) {
         folder = match[1];
         name = decodeURIComponent(match[2]);

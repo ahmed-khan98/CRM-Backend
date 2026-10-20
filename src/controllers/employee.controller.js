@@ -1,12 +1,12 @@
-import { Attendance } from "../models/attendence.model.js";
+﻿import { Attendance } from "../models/attendence.model.js";
 import { Break } from "../models/break.model.js";
 import { Employee } from "../models/employee.model.js";
 import { EmployeeSalaryHistory } from "../models/employeeSalaryHistory.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { parseMaybeJson, toNumber } from "../utils/hrmsHelpers.js";
+import { saveEmployeeImageLocally } from "../utils/localFileStore.js";
 import mongoose from "mongoose";
 
 const pickHrmsFields = (body) => {
@@ -103,9 +103,8 @@ const createEmployee = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Employee Image is required");
   }
 
-  const image = await uploadOnCloudinary(EmployeeImg, "PPI-Employee");
-
-  if (!image.url) {
+  const image = saveEmployeeImageLocally(EmployeeImg, req);
+  if (!image?.url) {
     throw new ApiError(400, "Employee image is not uploaded");
   }
 
@@ -120,7 +119,7 @@ const createEmployee = asyncHandler(async (req, res) => {
     departmentId,
     address,
     password,
-    image: image?.url,
+    image: image.url,
     joiningDate,
     role,
     ...hrms,
@@ -174,12 +173,11 @@ const updateEmployee = asyncHandler(async (req, res) => {
   let image = "";
   const EmployeeImg = req.file;
   if (EmployeeImg) {
-    const img = await uploadOnCloudinary(EmployeeImg, "PPI-Employee");
-
-    if (!img.url) {
+    const img = saveEmployeeImageLocally(EmployeeImg, req);
+    if (!img?.url) {
       throw new ApiError(400, "Employee image is not uploaded");
     }
-    image = img?.url;
+    image = img.url;
   }
 
   const hrms = pickHrmsFields(req.body);

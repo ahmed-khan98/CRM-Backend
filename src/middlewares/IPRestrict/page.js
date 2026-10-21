@@ -4,8 +4,24 @@ import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const allowedIps = process.env.IP
-  ? process.env.IP.split(",").map((i) => i.trim())
+  ? process.env.IP.split(",").map((i) => i.trim()).filter(Boolean)
   : [];
+
+// Allowed hai ya nahi check karo (wildcard: last octet 0-254)
+
+const isIpAllowed = (ip) => {
+  const match = (ip || "").match(/^(\d+\.\d+\.\d+)\.(\d+)$/);
+
+  return allowedIps.some((rule) => {
+    if (rule.endsWith(".*")) {
+      if (!match) return false;
+      const prefix = rule.slice(0, -2); // e.g. "192.168.18"
+      const last = Number(match[2]);
+      return match[1] === prefix && last >= 0 && last <= 254;
+    }
+    return rule === ip; // exact match
+  });
+};
 
 const whitelistedEmails = [
   "ahmedkhan@pentaprime-innovations.com",
@@ -17,10 +33,11 @@ const whitelistedEmails = [
 ];
 
 export const restrictIP = asyncHandler(async (req, res, next) => {
-  // 1. Bypass Payment Link and Brand routes
+  // 1. Bypass Payment Link, Brand, and public Careers / joining / offer-respond
   if (
     req.originalUrl.includes("/paymentlink") ||
-    req.originalUrl.includes("/brand")
+    req.originalUrl.includes("/brand") ||
+    req.originalUrl.includes("/public/careers")
   ) {
     return next();
   }
@@ -85,7 +102,7 @@ export const restrictIP = asyncHandler(async (req, res, next) => {
   }
   
   // 5. IP Validation Check
-  if (!allowedIps.includes(clientIP)) {
+  if (!isIpAllowed(clientIP)) {
  return next(new ApiError(403, `Access Denied: IP is not authorized.`));
   }
 

@@ -1,12 +1,23 @@
-﻿import { Attendance } from "../models/attendence.model.js";
+import crypto from "crypto";
+import { Attendance } from "../models/attendence.model.js";
 import { Break } from "../models/break.model.js";
 import { Employee } from "../models/employee.model.js";
 import { EmployeeSalaryHistory } from "../models/employeeSalaryHistory.model.js";
+import { Application } from "../models/recruitment/index.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { parseMaybeJson, toNumber } from "../utils/hrmsHelpers.js";
 import { saveEmployeeImageLocally } from "../utils/localFileStore.js";
+import { parseMaybeJson, toNumber } from "../utils/hrmsHelpers.js";
+import {
+  normalizePkCnic,
+  normalizePkPhone,
+} from "../utils/hireHelpers.js";
+import { syncRecruitmentHire } from "../utils/recruitmentHireSync.js";
+import {
+  ensureInitialDesignationHistory,
+  recordDesignationChange,
+} from "../utils/designationHistory.js";
 import mongoose from "mongoose";
 
 const pickHrmsFields = (body) => {
@@ -62,11 +73,35 @@ const appendHistoryOnUpdate = async (existEmployee, nextFields, actorId, body) =
   }
 };
 
+const appendDesignationHistoryOnUpdate = async (
+  existEmployee,
+  nextDesignation,
+  actorId,
+  body
+) => {
+  if (nextDesignation === undefined || nextDesignation === null) return;
+  const next = String(nextDesignation).trim();
+  const prev = String(existEmployee.designation || "").trim();
+  if (!next || prev.toLowerCase() === next.toLowerCase()) return;
+
+  await ensureInitialDesignationHistory(existEmployee, actorId);
+  await recordDesignationChange({
+    employeeId: existEmployee._id,
+    previousDesignation: prev,
+    designation: next,
+    effectiveDate: body.designationEffectiveDate
+      ? new Date(body.designationEffectiveDate)
+      : new Date(),
+    reason: body.designationChangeReason || "",
+    actorId,
+  });
+};
+
 const createEmployee = asyncHandler(async (req, res) => {
   const {
     fullName,
-    phoneNo,
-    CNIC,
+    phoneNo: rawPhone,
+    CNIC: rawCnic,
     email,
     designation,
     departmentId,
@@ -74,7 +109,17 @@ const createEmployee = asyncHandler(async (req, res) => {
     address,
     password,
     role,
+    candidateId,
+    applicationId,
+    offerId,
+    joiningDetailsId,
+    source,
+    imageUrl,
   } = req.body;
+
+  const phoneNo = normalizePkPhone(rawPhone);
+  const CNIC = normalizePkCnic(rawCnic);
+
   if (
     [fullName, phoneNo, CNIC, designation, departmentId, joiningDate].some(
       (field) => field === undefined || field === "",
@@ -85,7 +130,9 @@ const createEmployee = asyncHandler(async (req, res) => {
 
   const existEmployee = await Employee.findOne({ CNIC });
   if (existEmployee) {
-    throw new ApiError(409, "Employee CNIC already exists");
+    throw new ApiError(409, "Employee CNIC already exists", [
+      { field: "CNIC", employeeId: String(existEmployee._id) },
+    ]);
   }
 
   if (email) {
@@ -93,22 +140,36 @@ const createEmployee = asyncHandler(async (req, res) => {
       email: String(email).toLowerCase().trim(),
     });
     if (existEmail) {
-      throw new ApiError(409, "An employee with this email already exists");
+      throw new ApiError(409, "An employee with this email already exists", [
+        { field: "email", employeeId: String(existEmail._id) },
+      ]);
     }
   }
 
   const EmployeeImg = req.file;
+  let imageUrlFinal = "";
 
-  if (!EmployeeImg) {
+  if (EmployeeImg) {
+    const image = saveEmployeeImageLocally(EmployeeImg, req);
+    if (!image?.url) {
+      throw new ApiError(400, "Employee image is not uploaded");
+    }
+    imageUrlFinal = image.url;
+  } else if (imageUrl && String(imageUrl).startsWith("http")) {
+    // Recruitment hire: photo already hosted (e.g. joining form / legacy URL)
+    imageUrlFinal = String(imageUrl).trim();
+  } else {
     throw new ApiError(400, "Employee Image is required");
   }
 
-  const image = saveEmployeeImageLocally(EmployeeImg, req);
-  if (!image?.url) {
-    throw new ApiError(400, "Employee image is not uploaded");
-  }
-
   const hrms = pickHrmsFields(req.body);
+  const resolvedPassword =
+    password && String(password).trim()
+      ? String(password)
+      : crypto.randomBytes(9).toString("base64url");
+
+  const fromRecruitment =
+    source === "recruitment" || Boolean(candidateId || applicationId);
 
   const employee = await Employee.create({
     fullName,
@@ -117,15 +178,21 @@ const createEmployee = asyncHandler(async (req, res) => {
     email,
     designation,
     departmentId,
-    address,
-    password,
-    image: image.url,
+    address: address && String(address).trim() ? address : "—",
+    password: resolvedPassword,
+    image: imageUrlFinal,
     joiningDate,
-    role,
+    role: role || "USER",
     ...hrms,
+    ...(fromRecruitment
+      ? {
+          candidateId: candidateId || null,
+          source: "recruitment",
+        }
+      : { source: "manual" }),
   });
 
-  if (hrms.currentSalary !== undefined) {
+  if (hrms.currentSalary !== undefined && !fromRecruitment) {
     await EmployeeSalaryHistory.create({
       employeeId: employee._id,
       previousSalary: 0,
@@ -135,6 +202,32 @@ const createEmployee = asyncHandler(async (req, res) => {
       updatedBy: req.user?._id,
       createdBy: req.user?._id,
     });
+  }
+
+  await ensureInitialDesignationHistory(employee, req.user?._id);
+
+  if (fromRecruitment) {
+    try {
+      await syncRecruitmentHire({
+        employee,
+        applicationId: applicationId || null,
+        offerId: offerId || null,
+        joiningDetailsId: joiningDetailsId || null,
+        candidateId: candidateId || null,
+        actorId: req.user?._id || null,
+      });
+    } catch (err) {
+      throw new ApiError(
+        err.statusCode || 500,
+        err.message ||
+          "Hire sync failed; employee was rolled back. Please try again."
+      );
+    }
+  } else if (applicationId && mongoose.isValidObjectId(applicationId)) {
+    await Application.updateOne(
+      { _id: applicationId, isDeleted: false },
+      { $set: { employeeId: employee._id } }
+    );
   }
 
   const createdUser = await Employee.findById(employee._id).select(
@@ -182,6 +275,12 @@ const updateEmployee = asyncHandler(async (req, res) => {
 
   const hrms = pickHrmsFields(req.body);
   await appendHistoryOnUpdate(existEmployee, hrms, req.user?._id, req.body);
+  await appendDesignationHistoryOnUpdate(
+    existEmployee,
+    designation,
+    req.user?._id,
+    req.body
+  );
 
   const EmployeeData = {
     fullName,

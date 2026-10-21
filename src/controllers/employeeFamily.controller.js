@@ -4,6 +4,16 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { parsePagination, paginatedResponse, parseMaybeJson } from "../utils/hrmsHelpers.js";
 
+function sanitizeSpouse(spouse) {
+  if (!spouse || typeof spouse !== "object") return {};
+  return {
+    name: spouse.name || "",
+    dob: spouse.dob || null,
+    cnic: spouse.cnic || "",
+    occupation: spouse.occupation || "",
+  };
+}
+
 const getAllFamilies = asyncHandler(async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
   const filter = {};
@@ -58,25 +68,12 @@ const upsertFamily = asyncHandler(async (req, res) => {
 
   if (!employeeId) throw new ApiError(400, "employeeId is required");
 
-  const spouse = parseMaybeJson(req.body.spouse, req.body.spouse || {});
+  const spouseRaw = parseMaybeJson(req.body.spouse, req.body.spouse || {});
+  const spouse = sanitizeSpouse(spouseRaw);
   const children = parseMaybeJson(req.body.children, req.body.children || []);
 
-  const payload = {
-    spouse: spouse || {},
-    children: Array.isArray(children) ? children : [],
-    fatherName: req.body.fatherName ?? "",
-    motherName: req.body.motherName ?? "",
-    updatedBy: req.user?._id,
-  };
-
-  if (req.body.fatherName === undefined) delete payload.fatherName;
-  if (req.body.motherName === undefined) delete payload.motherName;
-  if (req.body.spouse === undefined && !req.body.spouse) {
-    // keep existing spouse if not sent — only set when provided
-  }
-
   const setPayload = { updatedBy: req.user?._id };
-  if (req.body.spouse !== undefined) setPayload.spouse = spouse || {};
+  if (req.body.spouse !== undefined) setPayload.spouse = spouse;
   if (req.body.children !== undefined)
     setPayload.children = Array.isArray(children) ? children : [];
   if (req.body.fatherName !== undefined)
@@ -87,7 +84,7 @@ const upsertFamily = asyncHandler(async (req, res) => {
   // Full replace on add/put
   if (req.method === "POST" || req.method === "PUT") {
     Object.assign(setPayload, {
-      spouse: spouse || {},
+      spouse,
       children: Array.isArray(children) ? children : [],
       fatherName: req.body.fatherName || "",
       motherName: req.body.motherName || "",
@@ -98,6 +95,7 @@ const upsertFamily = asyncHandler(async (req, res) => {
     { employeeId },
     {
       $set: setPayload,
+      $unset: { "spouse.phone": "" },
       $setOnInsert: { employeeId, createdBy: req.user?._id },
     },
     { new: true, upsert: true }

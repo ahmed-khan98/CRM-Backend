@@ -7,7 +7,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
 const toMedia = (uploaded, originalName) => {
-  const url = uploaded?.url || uploaded?.secure_url;
+  const url = (uploaded?.secure_url || uploaded?.url || "").replace(
+    /^http:\/\//i,
+    "https://"
+  ) || null;
   if (!url) return null;
   return {
     url,

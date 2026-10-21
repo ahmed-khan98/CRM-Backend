@@ -9,11 +9,19 @@ import { filterByRole } from '../middlewares/filterByRole.js';
 
 const router= Router()
 
-// router.use(verifyJWT)
+const manageBrandRoles = ["ADMIN", "SUBADMIN", "HR_ADMIN"];
 
 router.route('/').get(filterByRole,getAllBrands)
-router.route('/add').post(checkRole("ADMIN","SUBADMIN","HR_ADMIN"),upload.single("image"),createBrand)
-router.route('/:id').patch(checkRole("ADMIN"),upload.single("image"),updateBrand).delete(adminVerify,deleteBrand).get(getBrandById)
+router.route('/add').post(
+  verifyJWT,
+  checkRole(...manageBrandRoles),
+  upload.single("image"),
+  createBrand
+)
+router.route('/:id')
+  .patch(verifyJWT, checkRole(...manageBrandRoles), upload.single("image"), updateBrand)
+  .delete(adminVerify, deleteBrand)
+  .get(getBrandById)
 router.route('/:departmentId/departmentBrand').get(getAllBrandsByDepartmentId)
 
 export default router

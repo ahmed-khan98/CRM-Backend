@@ -4,9 +4,13 @@ node_modules
 # public / runtime
 upload
 uploads/
+storage
 public/uploads/
 public/temp/
+storage/
 logs/
 export/
 exports/
+.cursor
+docs
 *.zip

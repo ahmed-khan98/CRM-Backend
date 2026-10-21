@@ -1,24 +1,39 @@
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
+cloudinary.config({ 
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
+  api_key: process.env.CLOUDINARY_API_KEY, 
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true, // delivery URLs default to https://res.cloudinary.com/...
 });
+
+/** Cloudinary returns both url (http) and secure_url (https). Always prefer https. */
+const preferSecureCloudinaryResult = (result) => {
+  if (!result || result.error) return result;
+  const httpsUrl = (result.secure_url || result.url || "").replace(
+    /^http:\/\//i,
+    "https://"
+  );
+  if (httpsUrl) {
+    result.secure_url = httpsUrl;
+    result.url = httpsUrl;
+  }
+  return result;
+};
 
 const uploadOnCloudinary = async (localFilePath) => {
   try {
     if (!localFilePath) return null;
 
     const { path, originalname } = localFilePath;
-
+    
     const res = await cloudinary.uploader.upload(path, {
       resource_type: "auto",
       public_id: originalname.split(".")[0],
     });
 
-    return res;
+    return preferSecureCloudinaryResult(res);
   } catch (e) {
     console.error("Error uploading file to Cloudinary:", e);
     return null;
@@ -33,7 +48,7 @@ const uploadBase64Image = async (base64String) => {
         resource_type: "auto",
       },
     );
-    return response;
+    return preferSecureCloudinaryResult(response);
   } catch (error) {
     console.error("Cloudinary upload error:", error);
     return null;
@@ -113,14 +128,13 @@ const uploadAttachmentOnCloudinary = async (file) => {
         ? `CRM-Tasks/${safe}_${uid}.${extension}`
         : `CRM-Tasks/${safe}_${uid}`;
 
-    const result = await cloudinary.uploader.upload(path, {
-      resource_type: resourceType,
-      public_id: publicId,
-      overwrite: false,
-    });
-    if (result && !result.url && result.secure_url) {
-      result.url = result.secure_url;
-    }
+    const result = preferSecureCloudinaryResult(
+      await cloudinary.uploader.upload(path, {
+        resource_type: resourceType,
+        public_id: publicId,
+        overwrite: false,
+      })
+    );
 
     try {
       fs.unlinkSync(path);
@@ -214,56 +228,115 @@ const fetchAttachmentFromCloudinary = async ({ url, publicId, filename }) => {
     "eps",
   ]);
   const skipDirect = restrictedExts.has(ext) || resourceType === "raw";
+  // Resumes were sometimes uploaded as image/upload PDFs — try both types
+  const resourceTypes = [
+    ...new Set(
+      restrictedExts.has(ext)
+        ? [resourceType, "raw", "image"]
+        : [resourceType]
+    ),
+  ];
 
-  // 1) Direct URL only for non-restricted public assets (images etc.)
-  // Cloudinary often blocks unsigned PDF/raw delivery in browsers.
-  if (url && !skipDirect) {
-    const direct = await fetch(url.replace(/^http:\/\//i, "https://"));
-    if (direct.ok) {
-      const type = direct.headers.get("content-type") || "";
-      if (!type.includes("text/html")) return direct;
+  const isValidBody = async (res) => {
+    if (!res?.ok) return null;
+    const type = (res.headers.get("content-type") || "").toLowerCase();
+    if (type.includes("text/html")) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 20) return null;
+    const head = buf.subarray(0, 32).toString("utf8").trimStart().toLowerCase();
+    if (head.startsWith("<!doctype") || head.startsWith("<html")) return null;
+    if (ext === "pdf" && !buf.subarray(0, 5).toString("utf8").startsWith("%PDF")) {
+      return null;
+    }
+    return new Response(buf, {
+      status: 200,
+      headers: {
+        "content-type":
+          type && !type.includes("text/html")
+            ? type
+            : ext === "pdf"
+              ? "application/pdf"
+              : "application/octet-stream",
+      },
+    });
+  };
+
+  // 0) Resolve exact public_id via Admin API (fixes image-vs-raw mismatches)
+  for (const rt of resourceTypes) {
+    for (const pid of uniqueIds) {
+      try {
+        const info = await cloudinary.api.resource(pid, { resource_type: rt });
+        if (info?.public_id && !uniqueIds.includes(info.public_id)) {
+          uniqueIds.push(info.public_id);
+        }
+        if (info?.format && info.format !== ext) {
+          // keep trying original ext too
+        }
+        const format = info?.format || ext;
+        const downloadUrl = cloudinary.utils.private_download_url(
+          info.public_id,
+          format,
+          {
+            resource_type: info.resource_type || rt,
+            type: info.type || "upload",
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            attachment: true,
+          }
+        );
+        const valid = await isValidBody(await fetch(downloadUrl));
+        if (valid) return valid;
+      } catch (_) {}
     }
   }
 
-  // 2) Signed delivery URLs for each public_id variant
-  for (const pid of uniqueIds) {
-    const signedUrl = cloudinary.url(pid, {
-      resource_type: resourceType,
-      type: "upload",
-      sign_url: true,
-      secure: true,
-    });
+  // 1) Direct URL only for non-restricted public assets (images etc.)
+  if (url && !skipDirect) {
+    const valid = await isValidBody(
+      await fetch(url.replace(/^http:\/\//i, "https://"))
+    );
+    if (valid) return valid;
+  }
 
-    const res = await fetch(signedUrl);
-    if (res.ok) {
-      const type = res.headers.get("content-type") || "";
-      if (!type.includes("text/html")) return res;
+  // 2) Signed delivery URLs (+ fl_attachment for PDF delivery restrictions)
+  for (const rt of resourceTypes) {
+    for (const pid of uniqueIds) {
+      for (const flags of [undefined, "attachment"]) {
+        const signedUrl = cloudinary.url(pid, {
+          resource_type: rt,
+          type: "upload",
+          sign_url: true,
+          secure: true,
+          ...(flags ? { flags } : {}),
+          ...(ext === "pdf" ? { format: "pdf" } : {}),
+        });
+        const valid = await isValidBody(await fetch(signedUrl));
+        if (valid) return valid;
+      }
     }
   }
 
   // 3) Admin authenticated download URL
-  for (const pid of uniqueIds) {
-    try {
-      const downloadUrl = cloudinary.utils.private_download_url(pid, ext, {
-        resource_type: resourceType,
-        type: "upload",
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const res = await fetch(downloadUrl);
-      if (res.ok) {
-        const type = res.headers.get("content-type") || "";
-        if (!type.includes("text/html")) return res;
-      }
-    } catch (_) {}
+  for (const rt of resourceTypes) {
+    for (const pid of uniqueIds) {
+      try {
+        const downloadUrl = cloudinary.utils.private_download_url(pid, ext, {
+          resource_type: rt,
+          type: "upload",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          attachment: true,
+        });
+        const valid = await isValidBody(await fetch(downloadUrl));
+        if (valid) return valid;
+      } catch (_) {}
+    }
   }
 
-  // 4) Last attempt: direct URL even for raw (some accounts allow it)
+  // 4) Last attempt: direct URL even for raw/restricted
   if (url && skipDirect) {
-    const direct = await fetch(url.replace(/^http:\/\//i, "https://"));
-    if (direct.ok) {
-      const type = direct.headers.get("content-type") || "";
-      if (!type.includes("text/html")) return direct;
-    }
+    const valid = await isValidBody(
+      await fetch(url.replace(/^http:\/\//i, "https://"))
+    );
+    if (valid) return valid;
   }
 
   throw new Error("Cloudinary fetch failed for attachment");

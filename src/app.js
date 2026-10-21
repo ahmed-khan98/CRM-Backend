@@ -35,6 +35,10 @@ import employeeInsuranceHistoryRouter from "./routes/employeeInsuranceHistory.ro
 import employeePreviousEmploymentRouter from "./routes/employeePreviousEmployment.routes.js";
 import employeeFamilyRouter from "./routes/employeeFamily.routes.js";
 import chatRouter from "./routes/chat.routes.js";
+import leaveRouter from "./routes/leave.routes.js";
+import payrollRouter from "./routes/payroll.routes.js";
+import recruitmentRouter from "./routes/recruitment.routes.js";
+import publicCareersRouter from "./routes/publicCareers.routes.js";
 import { adminVerify } from "./middlewares/adminVerify.js";
 import { limiter } from "./middlewares/rateLimiter/page.js";
 import { restrictIP } from "./middlewares/IPRestrict/page.js";
@@ -108,6 +112,10 @@ app.use("/api/v1/user/employee-insurance-history", employeeInsuranceHistoryRoute
 app.use("/api/v1/user/employee-previous-employment", employeePreviousEmploymentRouter);
 app.use("/api/v1/user/employee-family", employeeFamilyRouter);
 app.use("/api/v1/user/chat", chatRouter);
+app.use("/api/v1/user/leave", leaveRouter);
+app.use("/api/v1/user/payroll", payrollRouter);
+app.use("/api/v1/user/recruitment", recruitmentRouter);
+app.use("/api/v1/public/careers", publicCareersRouter);
 
 app.use(ErrorHandler);
 

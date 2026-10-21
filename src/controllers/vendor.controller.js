@@ -9,7 +9,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[\d+\-\s()]{7,20}$/;
 
 const toMedia = (uploaded, originalName) => {
-  const url = uploaded?.url || uploaded?.secure_url;
+  const url = (uploaded?.secure_url || uploaded?.url || "").replace(
+    /^http:\/\//i,
+    "https://"
+  ) || null;
   if (!url) return null;
   return {
     url,

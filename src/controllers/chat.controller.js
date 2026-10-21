@@ -1062,7 +1062,11 @@ export const uploadChatAttachment = asyncHandler(async (req, res) => {
     }
   }
 
-  const fileUrl = uploaded.url || uploaded.secure_url;
+  // Prefer secure_url — Cloudinary's `.url` is http and causes mixed-content on HTTPS FE
+  const fileUrl = (uploaded.secure_url || uploaded.url || "").replace(
+    /^http:\/\//i,
+    "https://"
+  );
   if (!fileUrl) throw new ApiError(500, "Upload failed");
 
   const mime = req.file.mimetype || "";

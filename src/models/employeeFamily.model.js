@@ -26,7 +26,6 @@ const employeeFamilySchema = new Schema(
       name: { type: String, trim: true, default: "" },
       dob: { type: Date },
       cnic: { type: String, trim: true, default: "" },
-      phone: { type: String, trim: true, default: "" },
       occupation: { type: String, trim: true, default: "" },
     },
     children: { type: [childSchema], default: [] },

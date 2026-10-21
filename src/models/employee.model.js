@@ -109,6 +109,19 @@ const employeeSchema = new Schema(
     iban: { type: String, trim: true, default: "" },
     ntn: { type: String, trim: true, default: "" },
 
+    /** Set when hired via Recruitment ATS (hidden from manual Add Employee UX) */
+    candidateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Candidate",
+      default: null,
+      index: true,
+    },
+    source: {
+      type: String,
+      enum: ["manual", "recruitment", ""],
+      default: "manual",
+    },
+
     createdAt: {
       type: Date,
       default: Date.now,

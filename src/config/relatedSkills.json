@@ -1,0 +1,6 @@
+{
+  "typescript": [{ "skill": "javascript", "credit": 0.5 }],
+  "next.js": [{ "skill": "react", "credit": 0.5 }],
+  "express.js": [{ "skill": "node.js", "credit": 0.4 }],
+  "redux toolkit": [{ "skill": "redux", "credit": 0.8 }]
+}

@@ -24,7 +24,29 @@ process.on('uncaughtException', (err) => {
 
 
 connectDB()
-.then(() => {
+.then(async () => {
+    try {
+      const { ensureRecruitmentCvDir } = await import("./utils/recruitmentCvStore.js");
+      const cvDir = ensureRecruitmentCvDir();
+      console.log(`Recruitment CV storage: ${cvDir}`);
+    } catch (e) {
+      console.error("Recruitment CV storage:", e?.message || e);
+      throw e;
+    }
+    try {
+      const { ensureRecruitmentDefaults } = await import("./utils/recruitmentHelpers.js");
+      await ensureRecruitmentDefaults();
+    } catch (e) {
+      console.error("Recruitment defaults:", e?.message || e);
+    }
+    try {
+      const { startMatchQueueWorker } = await import(
+        "./services/ai/matching/queue.js"
+      );
+      startMatchQueueWorker();
+    } catch (e) {
+      console.error("Match queue worker:", e?.message || e);
+    }
     const server = http.createServer(app);
     initSocket(server);
     startLeadScheduleReminderCron();

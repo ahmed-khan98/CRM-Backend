@@ -1,22 +1,44 @@
-import formData from "form-data";
-import Mailgun from "mailgun.js";
+import nodemailer from "nodemailer";
 
-const API_KEY = process.env.MAILGUN_API_KEY;
-const DOMAIN = process.env.MAILGUN_DOMAIN;
-const FROM =
-  process.env.MAILGUN_FROM ||
-  (DOMAIN ? `Zytron CRM <noreply@${DOMAIN}>` : null);
+// ---- Mailgun (disabled) ----
+// import formData from "form-data";
+// import Mailgun from "mailgun.js";
+// const API_KEY = process.env.MAILGUN_API_KEY;
+// const DOMAIN = process.env.MAILGUN_DOMAIN;
+// const FROM = process.env.MAILGUN_FROM || ...
+// return mg.messages.create(DOMAIN, { from: FROM, to, subject, html });
+
+const SMTP_USER =
+  process.env.SMTP_USER ||
+  process.env.CAREERS_SMTP_USER ||
+  process.env.RECRUITMENT_FROM_EMAIL ||
+  "careers@zytronworld.com";
+const SMTP_PASS =
+  process.env.SMTP_PASS ||
+  process.env.CAREERS_SMTP_PASS ||
+  process.env.PASSWORD ||
+  "";
+const SMTP_HOST =
+  process.env.SMTP_HOST ||
+  process.env.CAREERS_SMTP_HOST ||
+  "mail.zytronworld.com";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 
 export async function sendPasswordResetEmail(toEmail, code) {
-  if (!API_KEY || !DOMAIN || !FROM) {
+  if (!SMTP_PASS) {
     console.warn(
-      `[password-reset] Mailgun not configured. Reset code for ${toEmail}: ${code}`,
+      `[password-reset] SMTP not configured. Reset code for ${toEmail}: ${code}`
     );
     return { skipped: true };
   }
 
-  const mailgun = new Mailgun(formData);
-  const mg = mailgun.client({ username: "api", key: API_KEY });
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    tls: { rejectUnauthorized: false },
+  });
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
@@ -27,8 +49,9 @@ export async function sendPasswordResetEmail(toEmail, code) {
     </div>
   `;
 
-  return mg.messages.create(DOMAIN, {
-    from: FROM,
+  return transporter.sendMail({
+    from: `"Zytron CRM" <${SMTP_USER}>`,
+    sender: SMTP_USER,
     to: toEmail,
     subject: "Zytron CRM — Password reset code",
     html,

@@ -23,7 +23,10 @@ import { notifyTaskAssignees, notifyTaskStatusChange, notifyTaskComment } from "
 import { emitToUsers } from "../utils/socket.js";
 import { Notification } from "../models/notification.model.js";
 
-const attachmentUrl = (uploaded) => uploaded?.url || uploaded?.secure_url || null;
+const attachmentUrl = (uploaded) => {
+  const raw = uploaded?.secure_url || uploaded?.url || null;
+  return raw ? String(raw).replace(/^http:\/\//i, "https://") : null;
+};
 
 /** Uploads files: zip/rar/7z go to VPS disk, everything else to Cloudinary. */
 const uploadAttachments = async (files, req) => {

@@ -7,7 +7,11 @@
   "scripts": {
     "start": "node -r dotenv/config src/index.js",
     "dev": "nodemon -r dotenv/config src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "seed:recruitment": "node -r dotenv/config scripts/seedRecruitment.js",
+    "smoke:hrms": "node -r dotenv/config scripts/smokeHrms.js",
+    "test": "npm run smoke:hrms",
+    "test:ai": "node --test tests/aiService.test.js tests/cvParse.test.js tests/recruitmentCvStore.test.js tests/matchingScore.test.js tests/mustHaveCapTiers.test.js tests/matchQueue.test.js tests/phase4Match.test.js tests/rematchBatch.test.js tests/matchPipeline.e2e.test.js",
+    "fixtures:cv": "node scripts/makeMatchCvFixtures.js"
   },
   "keywords": [],
   "author": "",
@@ -24,17 +28,20 @@
     "express-rate-limit": "^8.3.2",
     "jsonwebtoken": "^9.0.2",
     "mailgun.js": "^12.1.0",
+    "mammoth": "1.13.0",
     "moment": "^2.30.1",
     "moment-timezone": "^0.6.0",
     "mongoose": "^8.0.0",
     "mongoose-aggregate-paginate-v2": "^1.0.6",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^7.0.6",
+    "pdf-parse": "1.1.1",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@babel/core": "^7.24.7",

@@ -32,6 +32,8 @@ const payrollEntrySchema = new Schema(
     halfDays: { type: Number, default: 0 },
     workingDays: { type: Number, default: 0 },
     absentDeduction: { type: Number, default: 0 },
+    /** Half-day attendance cut (separate from full absent days). */
+    halfDayDeduction: { type: Number, default: 0 },
     lateDeduction: { type: Number, default: 0 },
     tax: { type: Number, default: 0 },
     pf: { type: Number, default: 0 },

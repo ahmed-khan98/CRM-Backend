@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
-import { filterByRole } from "../middlewares/filterByRole.js";
+import { filterByRoleOrHrOrg } from "../middlewares/filterByRole.js";
 import {
   getSettings,
   updateSettings,
@@ -37,7 +37,7 @@ router
   .patch(checkRole(...manageRoles), updateDeductionType)
   .delete(checkRole(...manageRoles), deleteDeductionType);
 
-router.route("/run").get(checkRole(...viewRoles), filterByRole, getRun);
+router.route("/run").get(checkRole(...manageRoles), filterByRoleOrHrOrg, getRun);
 router.route("/generate").post(checkRole(...manageRoles), generatePayroll);
 router.route("/runs/:id/finalize").post(checkRole(...manageRoles), finalizeRun);
 router.route("/runs/:id/pay").post(checkRole(...manageRoles), markPaid);
@@ -52,7 +52,7 @@ router
   .get(checkRole(...allRoles), downloadPayslipPdf);
 
 router.route("/payslips/me").get(checkRole(...allRoles), myPayslips);
-router.route("/payslips").get(checkRole(...allRoles), filterByRole, teamPayslips);
+router.route("/payslips").get(checkRole(...allRoles), filterByRoleOrHrOrg, teamPayslips);
 router.route("/payslips/email").post(checkRole(...manageRoles), emailPayslips);
 
 export default router;

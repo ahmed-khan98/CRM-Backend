@@ -225,11 +225,11 @@ const generatePayroll = asyncHandler(async (req, res) => {
     // No payable weekdays on/after joining date within the cycle
     if ((attendance.payableDays ?? 0) <= 0) continue;
 
-    const salary = prorateSalary(
-      fullSalary,
-      attendance.payableDays,
-      attendance.workingDays
-    );
+    const salary = prorateSalary(fullSalary, {
+      joinKey: attendance.joinKey,
+      cycleStart: attendance.cycleStart || period.start,
+      cycleEnd: attendance.cycleEnd || period.end,
+    });
     const missingBank = !emp.accountNumber;
     const pay = computeEntryPay({
       salary,
@@ -394,11 +394,23 @@ const updateEntryAmounts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Locked payroll cannot be edited");
   }
 
+  if (req.body.lateDays !== undefined) {
+    entry.lateDays = Math.max(0, Math.floor(Number(req.body.lateDays) || 0));
+  }
+  if (req.body.absentDays !== undefined) {
+    entry.absentDays = Math.max(0, Math.floor(Number(req.body.absentDays) || 0));
+  }
+  if (req.body.halfDays !== undefined) {
+    entry.halfDays = Math.max(0, Math.floor(Number(req.body.halfDays) || 0));
+  }
   if (req.body.lateDeduction !== undefined) {
     entry.lateDeduction = Math.max(0, Number(req.body.lateDeduction) || 0);
   }
   if (req.body.absentDeduction !== undefined) {
     entry.absentDeduction = Math.max(0, Number(req.body.absentDeduction) || 0);
+  }
+  if (req.body.halfDayDeduction !== undefined) {
+    entry.halfDayDeduction = Math.max(0, Number(req.body.halfDayDeduction) || 0);
   }
   if (req.body.tax !== undefined) {
     entry.tax = Math.max(0, Number(req.body.tax) || 0);

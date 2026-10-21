@@ -3,21 +3,21 @@ import { breakIn, breakOut, createEmployee, deleteEmployee, getAllEmployees, get
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
-import { filterByRole } from "../middlewares/filterByRole.js";
+import { filterByRoleOrHrOrg } from "../middlewares/filterByRole.js";
 
 const router=Router();
 const allowRoles = ["ADMIN","SUBADMIN","HR_ADMIN","DEP_ADMIN"];
 router.use(verifyJWT)
 
-router.route('/').get(checkRole(...allowRoles),filterByRole,getAllEmployees)
+router.route('/').get(checkRole(...allowRoles),filterByRoleOrHrOrg,getAllEmployees)
 router.route('/assignees').get(getAssignees)
 router.route('/add').post(checkRole(...allowRoles),upload.single("image"),createEmployee)
 router.route("/breakIn").post(breakIn)
 router.route("/breakOut").post(breakOut)
-router.route("/breaks").get(checkRole(...allowRoles), filterByRole, getAllBreaks)
+router.route("/breaks").get(checkRole(...allowRoles), filterByRoleOrHrOrg, getAllBreaks)
 router.route("/my-breaks").get(getMyBreak)
 router.route('/:id').patch(checkRole(...allowRoles),upload.single("image"),updateEmployee).delete(checkRole(...allowRoles),deleteEmployee).get(getEmployeeById)
-router.route('/:id/departmentEmployee').get(filterByRole, getEmployeesByDepartId)
+router.route('/:id/departmentEmployee').get(filterByRoleOrHrOrg, getEmployeesByDepartId)
 router.route("/change-status/:id").patch(checkRole(...allowRoles),statusChange)
 
 export default router   

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { checkRole } from "../middlewares/checkRole.js";
-import { filterByRole } from "../middlewares/filterByRole.js";
+import { filterByRoleOrHrOrg } from "../middlewares/filterByRole.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import {
   getLeaveTypes,
@@ -50,14 +50,14 @@ router.route("/apply").post(checkRole(...allRoles), upload.single("file"), apply
 
 router
   .route("/team")
-  .get(checkRole(...teamRoles), filterByRole, getTeamLeave);
+  .get(checkRole(...teamRoles), filterByRoleOrHrOrg, getTeamLeave);
 
 router
   .route("/employee/:employeeId/balances")
-  .get(checkRole(...teamRoles), filterByRole, getEmployeeBalances);
+  .get(checkRole(...teamRoles), filterByRoleOrHrOrg, getEmployeeBalances);
 router
   .route("/employee/:employeeId/requests")
-  .get(checkRole(...teamRoles), filterByRole, getEmployeeRequests);
+  .get(checkRole(...teamRoles), filterByRoleOrHrOrg, getEmployeeRequests);
 
 router.route("/:id/approve").post(checkRole(...teamRoles), approveLeave);
 router.route("/:id/reject").post(checkRole(...teamRoles), rejectLeave);

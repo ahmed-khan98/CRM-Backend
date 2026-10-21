@@ -10,6 +10,7 @@ import moment from "moment-timezone";
 import { Break } from "../models/break.model.js";
 import crypto from "crypto";
 import { sendPasswordResetEmail } from "../utils/passwordResetEmail.js";
+import { saveEmployeeImageLocally } from "../utils/localFileStore.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -287,27 +288,30 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 });
 
 const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.file?.path;
-
-  if (!avatarLocalPath) {
+  if (!req.file) {
     throw new ApiError(400, "Avatar file is missing");
   }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  if (!String(req.file.mimetype || "").startsWith("image/")) {
+    throw new ApiError(400, "Only image files are allowed");
+  }
 
-  if (!avatar.url) {
-    throw new ApiError(400, "Error while uploading on avatar");
+  const saved = saveEmployeeImageLocally(req.file, req);
+  if (!saved?.url) {
+    throw new ApiError(400, "Error while uploading avatar");
   }
 
   const user = await Employee.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
-        image: avatar.url,
+        image: saved.url,
       },
     },
-    { new: true },
-  ).select("-password");
+    { new: true }
+  )
+    .select("-password")
+    .populate("departmentId", "name");
 
   return res
     .status(200)

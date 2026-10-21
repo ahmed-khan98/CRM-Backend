@@ -5,6 +5,7 @@ import { EmployeeAllowance } from "../models/employeeAllowance.model.js";
 import { LeaveRequest } from "../models/leaveRequest.model.js";
 import { DeductionType } from "../models/deductionType.model.js";
 import { PayrollSettings } from "../models/payrollSettings.model.js";
+import { EmployeeSalaryHistory } from "../models/employeeSalaryHistory.model.js";
 import { holidayDateSet } from "./leaveHelpers.js";
 
 export const TZ = "Asia/Karachi";
@@ -161,15 +162,16 @@ export function toDateKey(value) {
 
 /**
  * Pay-cycle attendance stats.
- * - Absents = only explicit `absent` marks (not blank/missing days).
- *   Missing days used to inflate counts vs calendar-month attendance UI
- *   because the cycle spans prior-month weekdays (e.g. 26–31 Aug).
- * - Company/dept holidays never count as absent (even if marked absent).
+ * - Absents = explicit `absent` OR past weekday with no punch (same as attendance UI:
+ *   no record ⇒ absent). Future dates in the open cycle are NOT auto-absent.
+ * - Half-day / late only when a record exists with that status.
+ * - Holidays & approved leave never count as absent.
  * - Days before joiningDate are ignored.
  */
 export async function attendanceBreakdown(employeeId, year, month, cycleEndDay = 25, departmentId) {
   const { start, end } = monthRange(year, month, cycleEndDay);
   const weekdays = weekdayList(year, month, cycleEndDay);
+  const todayKey = moment().tz(TZ).format("YYYY-MM-DD");
   const emp = await Employee.findById(employeeId)
     .select("departmentId joiningDate")
     .lean();
@@ -214,8 +216,9 @@ export async function attendanceBreakdown(employeeId, year, month, cycleEndDay =
 
     const status = byDate.get(date);
     if (!status) {
-      // No punch / no mark — do not auto-absent (matches attendance UI counts)
-      missingDays += 1;
+      // Match attendance UI: no punch on a past workday = absent
+      if (date < todayKey) absentDays += 1;
+      else missingDays += 1; // today/future — don't deduct yet
       return;
     }
     if (status === "absent") absentDays += 1;
@@ -249,47 +252,73 @@ export function isEligibleForPayCycle(joiningDate, periodEnd) {
   return joinKey <= periodEnd;
 }
 
+const CALENDAR_DAYS_PER_MONTH = 30;
+
 /**
- * Prorate monthly salary by payable weekdays / full cycle weekdays.
- * e.g. join mid-cycle → only days from joining date onward.
+ * Table always keeps full monthly basic/allowances.
+ * Mid-cycle join: earned grossPay = (fullGross ÷ 30) × calendar days from join → cycle end.
+ * (Legacy weekday payable/total args still accepted for compatibility.)
  */
-export function prorateSalary(salary, payableDays, totalDays) {
-  const total = Math.max(0, Number(totalDays) || 0);
-  const payable = Math.max(0, Number(payableDays) || 0);
-  if (!total || payable >= total) {
+export function prorateSalary(salary, payableDaysOrOpts, totalDays) {
+  const full = {
+    basicSalary: Number(salary.basicSalary || 0),
+    allowances: salary.allowances || [],
+    allowancesTotal: Number(salary.allowancesTotal || 0),
+    grossPay: Number(salary.grossPay || 0),
+  };
+
+  // New API: prorateSalary(salary, { joinKey, cycleStart, cycleEnd })
+  if (
+    payableDaysOrOpts &&
+    typeof payableDaysOrOpts === "object" &&
+    !Array.isArray(payableDaysOrOpts)
+  ) {
+    const { joinKey, cycleStart, cycleEnd } = payableDaysOrOpts;
+    if (!joinKey || !cycleStart || !cycleEnd || joinKey <= cycleStart) {
+      return {
+        ...full,
+        prorated: false,
+        payableDays: CALENDAR_DAYS_PER_MONTH,
+        totalDays: CALENDAR_DAYS_PER_MONTH,
+      };
+    }
+    const start = moment(joinKey, "YYYY-MM-DD");
+    const end = moment(cycleEnd, "YYYY-MM-DD");
+    if (!start.isValid() || !end.isValid() || start.isAfter(end, "day")) {
+      return {
+        ...full,
+        grossPay: 0,
+        prorated: true,
+        payableDays: 0,
+        totalDays: CALENDAR_DAYS_PER_MONTH,
+      };
+    }
+    const days = end.diff(start, "days") + 1;
+    const factor = Math.min(1, Math.max(0, days / CALENDAR_DAYS_PER_MONTH));
+    if (factor >= 1) {
+      return {
+        ...full,
+        prorated: false,
+        payableDays: days,
+        totalDays: CALENDAR_DAYS_PER_MONTH,
+      };
+    }
+    // Keep full basic/allowances for table; only earned gross is day-based
     return {
-      ...salary,
-      prorated: false,
-      payableDays: payable || total,
-      totalDays: total,
-    };
-  }
-  if (payable <= 0) {
-    return {
-      basicSalary: 0,
-      allowances: (salary.allowances || []).map((a) => ({ ...a, amount: 0 })),
-      allowancesTotal: 0,
-      grossPay: 0,
+      ...full,
+      grossPay: Math.round(full.grossPay * factor),
       prorated: true,
-      payableDays: 0,
-      totalDays: total,
+      payableDays: days,
+      totalDays: CALENDAR_DAYS_PER_MONTH,
     };
   }
-  const factor = payable / total;
-  const basicSalary = Math.round(Number(salary.basicSalary || 0) * factor);
-  const allowances = (salary.allowances || []).map((a) => ({
-    ...a,
-    amount: Math.round(Number(a.amount || 0) * factor),
-  }));
-  const allowancesTotal = allowances.reduce((s, a) => s + (a.amount || 0), 0);
+
+  // Legacy — full pay amounts
   return {
-    basicSalary,
-    allowances,
-    allowancesTotal,
-    grossPay: basicSalary + allowancesTotal,
-    prorated: true,
-    payableDays: payable,
-    totalDays: total,
+    ...full,
+    prorated: false,
+    payableDays: Number(payableDaysOrOpts) || CALENDAR_DAYS_PER_MONTH,
+    totalDays: Number(totalDays) || CALENDAR_DAYS_PER_MONTH,
   };
 }
 
@@ -305,8 +334,28 @@ export async function snapshotSalary(employee) {
     mode: a.benefitMode || "cash",
   }));
   const allowancesTotal = items.reduce((s, a) => s + (a.amount || 0), 0);
-  const basicSalary = Number(employee.currentSalary || 0);
-  return { basicSalary, allowances: items, allowancesTotal, grossPay: basicSalary + allowancesTotal };
+
+  let basicSalary = Number(employee.currentSalary);
+  if (!Number.isFinite(basicSalary) || basicSalary < 0) basicSalary = 0;
+
+  // Fallback: latest salary-history revision if currentSalary missing on employee
+  if (!basicSalary) {
+    const latest = await EmployeeSalaryHistory.findOne({
+      employeeId: employee._id,
+    })
+      .sort({ effectiveDate: -1, createdAt: -1 })
+      .select("newSalary")
+      .lean();
+    basicSalary = Number(latest?.newSalary || 0);
+    if (!Number.isFinite(basicSalary) || basicSalary < 0) basicSalary = 0;
+  }
+
+  return {
+    basicSalary,
+    allowances: items,
+    allowancesTotal,
+    grossPay: basicSalary + allowancesTotal,
+  };
 }
 
 export async function scopedPayrollEmployees(req, employeeId) {
@@ -344,17 +393,23 @@ export function computeEntryPay({
   const pfType = findCode("pf");
   const absentType = findCode("absent");
 
-  const workingDays = attendance.workingDays || 22;
+  // 1-day pay = monthly gross ÷ 30 (calendar days), not working weekdays
+  const CALENDAR_DAYS = 30;
   const rateGross = Number(fullGrossPay ?? salary.grossPay ?? 0);
-  const daily = workingDays > 0 ? rateGross / workingDays : 0;
+  const daily = rateGross > 0 ? rateGross / CALENDAR_DAYS : 0;
   const latesPerDay = Math.max(1, Number(lateLatesPerDay || 2));
 
-  let absentDeduction = 0;
-  if (absentType) {
-    const absentRate = Number(absentType.defaultAmount ?? 100);
-    const absentUnits = (attendance.absentDays || 0) + (attendance.halfDays || 0) * 0.5;
-    absentDeduction = Math.round(absentUnits * daily * (absentRate / 100));
-  }
+  const absentRate = absentType
+    ? Number(absentType.defaultAmount ?? 100)
+    : 100;
+  const rateFactor = absentRate / 100;
+  // Full absent days and half-days are separate line items
+  const absentDeduction = Math.round(
+    (attendance.absentDays || 0) * daily * rateFactor
+  );
+  const halfDayDeduction = Math.round(
+    (attendance.halfDays || 0) * 0.5 * daily * rateFactor
+  );
 
   const lateDayUnits = Math.floor((attendance.lateDays || 0) / latesPerDay);
   const lateDeduction = Math.round(lateDayUnits * daily);
@@ -373,7 +428,8 @@ export function computeEntryPay({
   const manual = (extraDeductions || []).filter((d) => d.note !== "from settings");
   const mergedExtras = [...autoExtras, ...manual];
   const extra = mergedExtras.reduce((s, d) => s + Number(d.amount || 0), 0);
-  const deductionsTotal = absentDeduction + lateDeduction + tax + pf + extra;
+  const deductionsTotal =
+    absentDeduction + halfDayDeduction + lateDeduction + tax + pf + extra;
   const earnedGross = Number(salary.grossPay || 0);
   const netPay = Math.max(0, Math.round(earnedGross - deductionsTotal));
 
@@ -381,6 +437,7 @@ export function computeEntryPay({
     ...attendance,
     extraDeductions: mergedExtras,
     absentDeduction,
+    halfDayDeduction,
     lateDeduction,
     tax,
     pf,
@@ -398,6 +455,7 @@ export function applyEntryTotals(entry) {
   );
   entry.deductionsTotal =
     Number(entry.absentDeduction || 0) +
+    Number(entry.halfDayDeduction || 0) +
     Number(entry.lateDeduction || 0) +
     Number(entry.tax || 0) +
     Number(entry.pf || 0) +

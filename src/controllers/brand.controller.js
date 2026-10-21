@@ -124,8 +124,9 @@ const getBrandById = asyncHandler(async (req, res) => {
 });
 
 const getAllBrands = asyncHandler(async (req, res) => {
-  const brand = await Brand.find().populate("departmentId", "name");
-  if (!brand) { 
+  const brand = await Brand.find(req.roleFilter || {})
+    .populate("departmentId", "name");
+  if (!brand) {
     throw new ApiError(404, "brand not found");
   }
   return res.status(201).json(new ApiResponse(200, brand, "brand Found"));
@@ -133,8 +134,18 @@ const getAllBrands = asyncHandler(async (req, res) => {
 
 const getAllBrandsByDepartmentId = asyncHandler(async (req, res) => {
   const { departmentId } = req.params;
+  const role = String(req?.user?.role || "").toUpperCase();
+  if (role === "DEP_ADMIN" || role === "USER") {
+    const scoped = req.roleFilter?.departmentId;
+    if (!scoped || String(scoped) !== String(departmentId)) {
+      throw new ApiError(403, "You cannot access brands from another department");
+    }
+  }
 
-  const brand = await Brand.find({ departmentId });
+  const brand = await Brand.find({
+    departmentId,
+    ...(req.roleFilter || {}),
+  });
   if (!brand) {
     throw new ApiError(404, "brand not found");
   }

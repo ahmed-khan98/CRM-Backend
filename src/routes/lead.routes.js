@@ -27,10 +27,10 @@ router.post(
   }),
 );
 router.route('/add').post(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),createLead)
-router.route('/:id').delete(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN'),deleteLead).get(getLeadById).patch(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),updateLead)
+router.route('/:id').delete(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN'),deleteLead).get(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),filterByRole,getLeadById).patch(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),updateLead)
 router.route('/:leadId/updateActionLead').patch(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),LeadAction)
-router.route('/:departmentId/departmentLead').get(getLeadByDepartId)
-router.route('/:brandId/brandLead').get(getAllLeadsByBrandId)
+router.route('/:departmentId/departmentLead').get(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),filterByRole,getLeadByDepartId)
+router.route('/:brandId/brandLead').get(checkRole("ADMIN",'SUBADMIN','DEP_ADMIN','USER'),filterByRole,getAllLeadsByBrandId)
 
     
 

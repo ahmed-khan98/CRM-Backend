@@ -9,7 +9,19 @@ import { mapLastAction, mapPaid } from "../utils/map.js";
 import { loose, norm } from "../utils/normalize.js";
 import { promises as fsp } from "node:fs";
 import { normalizeLastAction } from "../utils/normalizeLastAction.js";
+import { deptIdOf } from "../middlewares/filterByRole.js";
 import xlsx from "xlsx";
+
+/** Always pin DEP_ADMIN / USER to their own department (never trust empty roleFilter). */
+function enforceLeadDeptScope(req, filter = {}) {
+  const role = String(req?.user?.role || "").toUpperCase();
+  if (role !== "DEP_ADMIN" && role !== "USER") return filter;
+  const departmentId = deptIdOf(req.user);
+  if (!departmentId) {
+    return { ...filter, _id: null };
+  }
+  return { ...filter, departmentId };
+}
 
 function findAgentId(agentName, employees, empStrict, empLoose) {
   if (!agentName) return null;
@@ -61,7 +73,7 @@ function findBrandInfo(brandName, brands, brandStrict, brandLoose) {
 }
 
 function buildLeadListFilter(req) {
-  const base = { ...req.roleFilter };
+  const base = enforceLeadDeptScope(req, { ...(req.roleFilter || {}) });
   const { search, lastAction, paidStatus, brandId } = req.query;
 
   if (brandId && brandId !== "all") {
@@ -471,15 +483,24 @@ const getLeadById = asyncHandler(async (req, res) => {
     .populate("agent", "fullName")
     .lean();
 
+  if (!lead) {
+    throw new ApiError(404, "Lead not found");
+  }
+
+  const role = String(req?.user?.role || "").toUpperCase();
+  if (role === "DEP_ADMIN" || role === "USER") {
+    const scopedDept = deptIdOf(req.user);
+    const leadDept = lead.departmentId?._id || lead.departmentId;
+    if (!scopedDept || String(leadDept) !== String(scopedDept)) {
+      throw new ApiError(403, "You cannot access leads from another department");
+    }
+  }
+
   const leadComment = await LeadComment.find({ leadId: id })
     .sort({ createdAt: -1 })
     .populate("userId", "fullName")
     .lean();
 
-  if (!lead) {
-    throw new ApiError(404, "Lead not found");
-    // return res.status(404).json({ error: 'Lead not found' });
-  }
   return res
     .status(200)
     .json(new ApiResponse(200, { ...lead, leadComment }, "Lead Found"));
@@ -487,10 +508,18 @@ const getLeadById = asyncHandler(async (req, res) => {
 
 const getLeadByDepartId = asyncHandler(async (req, res) => {
   const { departmentId } = req.params;
-  const lead = await Lead.find({ departmentId });
+  const role = String(req?.user?.role || "").toUpperCase();
+  if (role === "DEP_ADMIN" || role === "USER") {
+    const scopedDept = deptIdOf(req.user);
+    if (!scopedDept || String(scopedDept) !== String(departmentId)) {
+      throw new ApiError(403, "You cannot access leads from another department");
+    }
+  }
+  const lead = await Lead.find(
+    enforceLeadDeptScope(req, { departmentId })
+  );
   if (!lead) {
     throw new ApiError(404, "Lead not found");
-    // return res.status(404).json({ error: 'Lead not found' });
   }
   return res.status(200).json(new ApiResponse(200, lead, "Lead Found"));
 });

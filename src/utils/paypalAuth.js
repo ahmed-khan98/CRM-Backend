@@ -2,10 +2,10 @@ import fetch from "node-fetch";
 
 const {
   PAYPAL_BASE_URL,
+  PAYPAL3_CLIENT_ID,
+  PAYPAL3_CLIENT_SECRET,
   PAYPAL1_CLIENT_ID,
   PAYPAL1_CLIENT_SECRET,
-  PAYPAL2_CLIENT_ID,
-  PAYPAL2_CLIENT_SECRET,
 
 } = process.env;
 
@@ -15,12 +15,13 @@ export async function generateAccessToken(merchantType) {
 
   const type = merchantType?.trim();
 
-  if (type === "Kinatech Business Solutions LLC") {
+  if (type === "Skyliner Trading LLC") {
+    CLIENT_ID = PAYPAL3_CLIENT_ID;
+    CLIENT_SECRET = PAYPAL3_CLIENT_SECRET;
+  } 
+  else if (type === "Kinatech Business Solutions LLC") {
     CLIENT_ID = PAYPAL1_CLIENT_ID;
     CLIENT_SECRET = PAYPAL1_CLIENT_SECRET;
-  } else if (type === "Augmentus") {
-    CLIENT_ID = PAYPAL2_CLIENT_ID;
-    CLIENT_SECRET = PAYPAL2_CLIENT_SECRET;
   } 
 
   if (!CLIENT_ID || !CLIENT_SECRET) {

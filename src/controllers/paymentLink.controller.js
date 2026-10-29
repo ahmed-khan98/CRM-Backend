@@ -362,9 +362,9 @@ const getPaymentLinkById = asyncHandler(async (req, res) => {
   }
 
   const client_id =
-    link.merchantType === "Kinatech Business Solutions LLC"
-      ? process.env.PAYPAL1_CLIENT_ID
-      : process.env.PAYPAL2_CLIENT_ID;
+    link.merchantType === "Skyliner Trading LLC"
+      ? process.env.PAYPAL3_CLIENT_ID
+      : process.env.PAYPAL1_CLIENT_ID;
 
   return res
     .status(200)

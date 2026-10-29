@@ -8,8 +8,8 @@ import { Month } from "../models/month.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import {
+  currentAttendanceCycle,
   ensurePayrollDefaults,
-  payCycleRange,
 } from "../utils/payrollHelpers.js";
 import moment from "moment-timezone";
 
@@ -21,19 +21,6 @@ const getTodayShiftDate = () => {
   return now.hour() < 8
     ? now.clone().subtract(1, "days").format("YYYY-MM-DD")
     : now.format("YYYY-MM-DD");
-};
-
-/** Attendance / pay cycle containing `now`: 26 → 25 (cycleEndDay). */
-const currentAttendanceCycle = (now, cycleEndDay = 25) => {
-  const endDay = Math.min(28, Math.max(1, Number(cycleEndDay) || 25));
-  let endYear = now.year();
-  let endMonth = now.month() + 1;
-  if (now.date() > endDay) {
-    const next = now.clone().add(1, "month");
-    endYear = next.year();
-    endMonth = next.month() + 1;
-  }
-  return payCycleRange(endYear, endMonth, endDay);
 };
 
 const summarizeTeamDailyAttendance = async (req) => {

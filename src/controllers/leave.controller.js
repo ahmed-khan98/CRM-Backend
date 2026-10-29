@@ -22,6 +22,7 @@ import {
   ensureBalances,
   populateRequest,
 } from "../utils/leaveHelpers.js";
+import { payCycleRange } from "../utils/payrollHelpers.js";
 
 const overlapFilter = (from, to) => ({
   $or: [
@@ -270,9 +271,10 @@ const getTeamLeave = asyncHandler(async (req, res) => {
     from = startDate;
     to = endDate;
   } else if (month && year) {
-    const base = moment({ year: Number(year), month: Number(month) - 1, day: 1 });
-    from = base.clone().startOf("month").format("YYYY-MM-DD");
-    to = base.clone().endOf("month").format("YYYY-MM-DD");
+    // Payroll-labeled month: e.g. Oct → 26 Sep – 25 Oct
+    const period = payCycleRange(Number(year), Number(month));
+    from = period.start;
+    to = period.end;
   } else if (startDate) {
     from = startDate;
     to = startDate;
@@ -291,11 +293,10 @@ const getTeamLeave = asyncHandler(async (req, res) => {
   const rows = await populateRequest(LeaveRequest.find(filter).sort({ fromDate: -1, createdAt: -1 }));
 
   const today = todayPKT();
-  const monthStart = now.clone().startOf("month").format("YYYY-MM-DD");
-  const monthEnd = now.clone().endOf("month").format("YYYY-MM-DD");
+  // Stats follow the same selected range (pay cycle / custom / today)
   const monthScope = {
     employeeId: { $in: employeeIds },
-    ...overlapFilter(monthStart, monthEnd),
+    ...overlapFilter(from, to),
   };
 
   const [onLeaveToday, monthDocs] = await Promise.all([

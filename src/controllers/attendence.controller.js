@@ -11,6 +11,11 @@ import {
   resolveFinalStatus,
   TZ,
 } from "../utils/attendence/index.js";
+import {
+  currentAttendanceCycle,
+  payCycleRange,
+} from "../utils/payrollHelpers.js";
+import { holidayDateSet } from "../utils/leaveHelpers.js";
 
 const TimeIn = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.user._id);
@@ -237,17 +242,14 @@ const getMonthlyAttendance = asyncHandler(async (req, res) => {
         ? moment(endDate).endOf("day").format("YYYY-MM-DD")
         : moment(startDate).endOf("day").format("YYYY-MM-DD");
   } else if (month && year) {
-    const baseDate = moment({
-      year: parseInt(year),
-      month: parseInt(month) - 1,
-      day: 1,
-    });
-
-    finalStartDate = baseDate.clone().startOf("month").format("YYYY-MM-DD");
-    finalEndDate = baseDate.clone().endOf("month").format("YYYY-MM-DD");
+    // Payroll-labeled month: e.g. Oct → 26 Sep – 25 Oct
+    const period = payCycleRange(parseInt(year), parseInt(month));
+    finalStartDate = period.start;
+    finalEndDate = period.end;
   } else {
-    finalStartDate = moment().startOf("month").format("YYYY-MM-DD");
-    finalEndDate = moment().endOf("month").format("YYYY-MM-DD");
+    const period = currentAttendanceCycle();
+    finalStartDate = period.start;
+    finalEndDate = period.end;
   }
 
   const records = await Attendance.find({
@@ -280,7 +282,7 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
   }
 
   const employees = await Employee.find(employeeListQuery).select(
-    "fullName designation",
+    "fullName designation departmentId",
   );
   const employeeIds = employees.map((emp) => emp._id.toString());
 
@@ -297,11 +299,11 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
       query.shiftDate = { $gte: startDate, $lte: endDate };
     }
   } else if (month && year) {
-    const monthStr = String(month).padStart(2, "0");
-    const baseDate = `${year}-${monthStr}-01`;
+    // Payroll-labeled month: e.g. Oct → 26 Sep – 25 Oct
+    const period = payCycleRange(parseInt(year), parseInt(month));
     query.shiftDate = {
-      $gte: moment(baseDate).startOf("month").format("YYYY-MM-DD"),
-      $lte: moment(baseDate).endOf("month").format("YYYY-MM-DD"),
+      $gte: period.start,
+      $lte: period.end,
     };
   } else {
     const now = moment().tz("Asia/Karachi");
@@ -314,8 +316,18 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
 
   // 3. Database se records layein
   const records = await Attendance.find(query)
-    .populate("employeeId", "fullName designation")
+    .populate("employeeId", "fullName designation departmentId")
     .sort({ shiftDate: -1, timeIn: -1 });
+
+  // Company + dept holidays (cached per department for single-day fill)
+  const holidayCache = new Map();
+  const holidaysForDept = async (departmentId) => {
+    const key = departmentId ? String(departmentId) : "all";
+    if (!holidayCache.has(key)) {
+      holidayCache.set(key, await holidayDateSet(departmentId || null));
+    }
+    return holidayCache.get(key);
+  };
 
   // 4. LOGIC FIX:
   let finalData = [];
@@ -325,22 +337,72 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
     (startDate && endDate && startDate === endDate) || (!startDate && !month);
 
   if (isSingleDay) {
-    finalData = employees.map((emp) => {
-      const attendanceRecord = records.find(
-        (r) => r.employeeId._id.toString() === emp._id.toString(),
-      );
-      return {
-        employeeId: emp,
-        record: attendanceRecord || null,
-        isAbsent: !attendanceRecord,
-      };
-    });
+    const shiftDay = targetDate || startDate;
+    finalData = await Promise.all(
+      employees.map(async (emp) => {
+        const attendanceRecord = records.find(
+          (r) =>
+            (r.employeeId?._id || r.employeeId)?.toString() ===
+            emp._id.toString(),
+        );
+        const set = await holidaysForDept(emp.departmentId);
+        const isHoliday = set.has(shiftDay);
+        // Holiday replaces present / half-day / late for that day
+        if (isHoliday) {
+          return {
+            employeeId: emp,
+            record: {
+              ...(attendanceRecord?.toObject?.() || attendanceRecord || {}),
+              shiftDate: shiftDay,
+              status: "holiday",
+            },
+            isAbsent: false,
+            isHoliday: true,
+          };
+        }
+        if (attendanceRecord) {
+          return {
+            employeeId: emp,
+            record: attendanceRecord,
+            isAbsent: false,
+            isHoliday: false,
+          };
+        }
+        return {
+          employeeId: emp,
+          record: null,
+          isAbsent: true,
+          isHoliday: false,
+        };
+      }),
+    );
   } else {
-    finalData = records.map((r) => ({
-      employeeId: r.employeeId, // Populated data directly from record
-      record: r,
-      isAbsent: false,
-    }));
+    finalData = await Promise.all(
+      records.map(async (r) => {
+        const emp = r.employeeId;
+        const deptId = emp?.departmentId?._id || emp?.departmentId || null;
+        const set = await holidaysForDept(deptId);
+        const day = String(r.shiftDate || "").slice(0, 10);
+        const isHoliday = day && set.has(day);
+        if (!isHoliday) {
+          return {
+            employeeId: emp,
+            record: r,
+            isAbsent: false,
+            isHoliday: false,
+          };
+        }
+        return {
+          employeeId: emp,
+          record: {
+            ...(r.toObject?.() || r),
+            status: "holiday",
+          },
+          isAbsent: false,
+          isHoliday: true,
+        };
+      }),
+    );
   }
 
   // 5. Stats calculation

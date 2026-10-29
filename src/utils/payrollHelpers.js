@@ -37,6 +37,20 @@ export function payCycleRange(year, month, cycleEndDay = 25) {
   };
 }
 
+/** Active pay / attendance cycle containing `now` (Karachi): after cycleEndDay → next labeled month. */
+export function currentAttendanceCycle(now = moment().tz(TZ), cycleEndDay = 25) {
+  const m = moment(now).tz(TZ);
+  const endDay = Math.min(28, Math.max(1, Number(cycleEndDay) || 25));
+  let endYear = m.year();
+  let endMonth = m.month() + 1;
+  if (m.date() > endDay) {
+    const next = m.clone().add(1, "month");
+    endYear = next.year();
+    endMonth = next.month() + 1;
+  }
+  return payCycleRange(endYear, endMonth, endDay);
+}
+
 export function monthRange(year, month, cycleEndDay = 25) {
   return payCycleRange(year, month, cycleEndDay);
 }

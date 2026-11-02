@@ -32,7 +32,12 @@ const paymentLinkSchema = new mongoose.Schema(
     },
     merchantType: {
       type: String,
-      enum: ["stripe", "Kinatech Business Solutions LLC", "Augmentus"],
+      enum: [
+        "stripe",
+        "Kinatech Business Solutions LLC",
+        "Skyliner Trading LLC",
+        "Augmentus",
+      ],
       required: true,
     },
     service: {

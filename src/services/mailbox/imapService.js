@@ -294,17 +294,34 @@ export async function getMessage(mailboxId, folder, uid, opts = {}) {
         },
       );
 
+      let imagesBlocked = false;
       if (!loadImages) {
+        const before = html;
         html = html.replace(
           /(<img\b[^>]*\bsrc\s*=\s*["'])(?!data:)(https?:\/\/[^"']+)(["'][^>]*>)/gi,
           '$1#$2$3 data-blocked-src="$2"',
         );
+        // Also catch CSS background / other remote img-like URLs in srcset
+        html = html.replace(
+          /(<img\b[^>]*\bsrcset\s*=\s*["'])([^"']+)(["'])/gi,
+          (full, pre, val, post) => {
+            if (/https?:\/\//i.test(val)) {
+              imagesBlocked = true;
+              return `${pre}${post} data-blocked-srcset="1"`;
+            }
+            return full;
+          },
+        );
+        imagesBlocked = imagesBlocked || html !== before;
       }
 
       const safeHtml = DOMPurify.sanitize(html, {
         USE_PROFILES: { html: true },
-        ADD_ATTR: ["data-blocked-src"],
+        ADD_ATTR: ["data-blocked-src", "data-blocked-srcset"],
       });
+      if (!imagesBlocked && /data-blocked-src/i.test(safeHtml)) {
+        imagesBlocked = true;
+      }
 
       return {
         uid: uidNum,
@@ -319,7 +336,7 @@ export async function getMessage(mailboxId, folder, uid, opts = {}) {
         flagged: flags.has("\\Flagged"),
         text: parsed.text || "",
         html: safeHtml,
-        imagesBlocked: !loadImages,
+        imagesBlocked,
         attachments: attachments.filter((a) => !a.related),
         messageId: parsed.messageId || null,
       };

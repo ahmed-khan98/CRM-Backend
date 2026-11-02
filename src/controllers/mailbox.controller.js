@@ -1,0 +1,773 @@
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { Brand } from "../models/brand.model.js";
+import { Department } from "../models/department.model.js";
+import { Domain } from "../models/brandEmail.model.js";
+import { Employee } from "../models/employee.model.js";
+import { MailboxServerDefaults } from "../models/mailboxServerDefaults.model.js";
+import { MailboxAccount } from "../models/mailboxAccount.model.js";
+import { MailboxUserAccess } from "../models/mailboxUserAccess.model.js";
+import {
+  encryptMailboxPassword,
+  decryptMailboxPassword,
+  sanitizeMailboxDoc,
+} from "../utils/mailbox/crypto.js";
+import {
+  loadActorFromDb,
+  requireMappingAccess,
+  canManageCredentials,
+  canManageServerSettings,
+  canMapAllDepartments,
+  scopedBrandIds,
+  assertBrandInScope,
+  loadMailboxInMappingScope,
+  assertCanAssignUser,
+  listAssignableUsers,
+  isAssignmentDeptAligned,
+  actorDepartmentId,
+} from "../utils/mailbox/permissions.js";
+import { writeMailboxAudit } from "../utils/mailbox/audit.js";
+import {
+  resolveServerSettings,
+  testMailboxConnection,
+} from "../utils/mailbox/connectionTest.js";
+import {
+  serverDefaultsSchema,
+  createMailboxSchema,
+  updateMailboxSchema,
+  testConnectionSchema,
+  assignUsersSchema,
+  updateAssignmentSchema,
+} from "../utils/mailbox/schemas.js";
+
+async function getActor(req) {
+  return loadActorFromDb(req.user._id);
+}
+
+function parseOrThrow(schema, body) {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues.map((i) => i.message).join("; ");
+    throw new ApiError(400, msg || "Invalid input");
+  }
+  return parsed.data;
+}
+
+/**
+ * Compare brandEmail.departmentId vs Brand.departmentId (report-only).
+ */
+async function findBrandEmailDeptMismatches() {
+  const rows = await Domain.find({}).select("email name brandId departmentId").lean();
+  const brandIds = [...new Set(rows.map((r) => String(r.brandId)))];
+  const brands = await Brand.find({ _id: { $in: brandIds } })
+    .select("departmentId name")
+    .lean();
+  const brandMap = new Map(brands.map((b) => [String(b._id), b]));
+  const mismatches = [];
+  for (const row of rows) {
+    const brand = brandMap.get(String(row.brandId));
+    if (!brand) continue;
+    if (String(row.departmentId) !== String(brand.departmentId)) {
+      mismatches.push({
+        brandEmailId: String(row._id),
+        email: row.email,
+        brandEmailDepartmentId: String(row.departmentId),
+        brandId: String(row.brandId),
+        brandName: brand.name,
+        brandDepartmentId: String(brand.departmentId),
+      });
+    }
+  }
+  return mismatches;
+}
+
+// ─── Server defaults ─────────────────────────────────────────────
+
+export const listServerDefaults = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageServerSettings(actor)) {
+    throw new ApiError(403, "Only admin can view server settings");
+  }
+  const rows = await MailboxServerDefaults.find({}).sort({ domain: 1 }).lean();
+  return res
+    .status(200)
+    .json(new ApiResponse(200, rows, "Server defaults fetched"));
+});
+
+export const upsertServerDefaults = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageServerSettings(actor)) {
+    throw new ApiError(403, "Only admin can save server settings");
+  }
+  const data = parseOrThrow(serverDefaultsSchema, req.body);
+  const row = await MailboxServerDefaults.findOneAndUpdate(
+    { domain: data.domain },
+    { $set: data },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+  await writeMailboxAudit({
+    action: "server_defaults_upsert",
+    actor,
+    meta: { domain: data.domain },
+  });
+  return res
+    .status(200)
+    .json(new ApiResponse(200, row, "Server defaults saved"));
+});
+
+// ─── Mapping list ────────────────────────────────────────────────
+
+export const listMailboxesGrouped = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+
+  const brandIds = await scopedBrandIds(actor);
+  const mailboxQuery = {};
+  if (brandIds) {
+    mailboxQuery.brandId = { $in: brandIds };
+  }
+
+  const mailboxes = await MailboxAccount.find(mailboxQuery)
+    .populate({
+      path: "brandId",
+      select: "name departmentId",
+      populate: { path: "departmentId", select: "name" },
+    })
+    .populate("serverDefaultsId")
+    .sort({ emailAddress: 1 })
+    .lean();
+
+  const mailboxIds = mailboxes.map((m) => m._id);
+  const accessRows = await MailboxUserAccess.find({
+    mailboxId: { $in: mailboxIds },
+  })
+    .populate("userId", "fullName email departmentId status role")
+    .lean();
+
+  const byMailbox = new Map();
+  for (const a of accessRows) {
+    const key = String(a.mailboxId);
+    if (!byMailbox.has(key)) byMailbox.set(key, []);
+    const brand = mailboxes.find((m) => String(m._id) === key)?.brandId;
+    const aligned = isAssignmentDeptAligned(a.userId, brand);
+    byMailbox.get(key).push({
+      ...a,
+      outOfScope: !aligned,
+    });
+  }
+
+  const deptMap = new Map();
+  for (const m of mailboxes) {
+    const brand = m.brandId;
+    const dept = brand?.departmentId;
+    const deptId = String(dept?._id || dept || "unknown");
+    const deptName = dept?.name || "Unknown";
+    if (!deptMap.has(deptId)) {
+      deptMap.set(deptId, {
+        departmentId: deptId,
+        departmentName: deptName,
+        brands: new Map(),
+      });
+    }
+    const d = deptMap.get(deptId);
+    const brandId = String(brand?._id || m.brandId);
+    if (!d.brands.has(brandId)) {
+      d.brands.set(brandId, {
+        brandId,
+        brandName: brand?.name || "Unknown",
+        mailboxes: [],
+      });
+    }
+    const assignments = byMailbox.get(String(m._id)) || [];
+    d.brands.get(brandId).mailboxes.push({
+      ...sanitizeMailboxDoc(m),
+      assignedCount: assignments.length,
+      outOfScopeCount: assignments.filter((a) => a.outOfScope).length,
+      status: !m.isActive
+        ? "disabled"
+        : m.lastError
+          ? "error"
+          : m.lastConnectedAt
+            ? "connected"
+            : "unknown",
+    });
+  }
+
+  const grouped = [...deptMap.values()].map((d) => ({
+    departmentId: d.departmentId,
+    departmentName: d.departmentName,
+    brands: [...d.brands.values()],
+  }));
+
+  const mismatches = await findBrandEmailDeptMismatches();
+  if (mismatches.length) {
+    console.warn(
+      `[mailbox] brandEmail.departmentId mismatches vs Brand.departmentId: ${mismatches.length}`,
+    );
+  }
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { grouped, brandEmailDeptMismatches: mismatches },
+      "Mailboxes fetched",
+    ),
+  );
+});
+
+export const listBrandEmailsForPicker = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can pick Brand Email rows for mailboxes");
+  }
+
+  const rows = await Domain.find({})
+    .populate("brandId", "name departmentId")
+    .select("name email brandId departmentId")
+    .lean();
+
+  const brandIds = await scopedBrandIds(actor);
+  const filtered = brandIds
+    ? rows.filter((r) => brandIds.includes(String(r.brandId?._id || r.brandId)))
+    : rows;
+
+  const mismatches = [];
+  const data = filtered.map((r) => {
+    const brandDept = r.brandId?.departmentId;
+    const mismatch =
+      brandDept && String(r.departmentId) !== String(brandDept);
+    if (mismatch) {
+      mismatches.push({
+        brandEmailId: String(r._id),
+        email: r.email,
+        brandEmailDepartmentId: String(r.departmentId),
+        brandDepartmentId: String(brandDept),
+      });
+    }
+    return {
+      _id: r._id,
+      name: r.name,
+      email: r.email,
+      brandId: r.brandId?._id || r.brandId,
+      brandName: r.brandId?.name,
+      /** Permission decisions use Brand.departmentId only */
+      brandDepartmentId: brandDept,
+      brandEmailDepartmentId: r.departmentId,
+      departmentMismatch: Boolean(mismatch),
+    };
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, { rows: data, mismatches }, "Brand emails for picker"),
+  );
+});
+
+export const listBrandsForMapping = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const brandIds = await scopedBrandIds(actor);
+  const query = brandIds ? { _id: { $in: brandIds } } : {};
+  const brands = await Brand.find(query)
+    .select("name departmentId")
+    .populate("departmentId", "name")
+    .sort({ name: 1 })
+    .lean();
+  return res.status(200).json(new ApiResponse(200, brands, "Brands fetched"));
+});
+
+export const listDepartmentsForMapping = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canMapAllDepartments(actor)) {
+    const deptId = actorDepartmentId(actor);
+    const dept = await Department.findById(deptId).select("name").lean();
+    return res
+      .status(200)
+      .json(new ApiResponse(200, dept ? [dept] : [], "Departments fetched"));
+  }
+  const depts = await Department.find({}).select("name").sort({ name: 1 }).lean();
+  return res.status(200).json(new ApiResponse(200, depts, "Departments fetched"));
+});
+
+// ─── Create / update / test mailbox ──────────────────────────────
+
+async function resolveDefaultsFromBody(data) {
+  if (data.serverDefaultsId) {
+    const d = await MailboxServerDefaults.findById(data.serverDefaultsId);
+    if (!d) throw new ApiError(404, "Server defaults not found");
+    return d;
+  }
+  const domain =
+    data.domain ||
+    String(data.emailAddress || "")
+      .split("@")[1]
+      ?.toLowerCase();
+  if (!domain) throw new ApiError(400, "domain is required");
+  let d = await MailboxServerDefaults.findOne({ domain });
+  if (!d) {
+    throw new ApiError(
+      400,
+      `No server defaults for domain "${domain}". Save server settings first.`,
+    );
+  }
+  return d;
+}
+
+export const testConnection = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can test mailbox connections");
+  }
+  const data = parseOrThrow(testConnectionSchema, req.body);
+
+  let password = data.password;
+  let loginUsername = data.loginUsername;
+  let defaults;
+
+  if (data.mailboxId) {
+    const mailbox = await MailboxAccount.findById(data.mailboxId).select(
+      "+encryptedPassword",
+    );
+    if (!mailbox) throw new ApiError(404, "Mailbox not found");
+    await assertBrandInScope(actor, mailbox.brandId);
+    defaults = await MailboxServerDefaults.findById(mailbox.serverDefaultsId);
+    loginUsername = data.loginUsername || mailbox.loginUsername;
+    if (!password) {
+      password = decryptMailboxPassword(mailbox.encryptedPassword);
+    }
+    const settings = resolveServerSettings(defaults, {
+      imapHost: data.imapHost ?? mailbox.imapHost,
+      imapPort: data.imapPort ?? mailbox.imapPort,
+      imapSecure: data.imapSecure ?? mailbox.imapSecure,
+      smtpHost: data.smtpHost ?? mailbox.smtpHost,
+      smtpPort: data.smtpPort ?? mailbox.smtpPort,
+      smtpSecure: data.smtpSecure ?? mailbox.smtpSecure,
+    });
+    const result = await testMailboxConnection({
+      loginUsername,
+      password,
+      ...settings,
+    });
+    if (result.ok) {
+      await MailboxAccount.updateOne(
+        { _id: mailbox._id },
+        { $set: { lastError: null, lastConnectedAt: new Date() } },
+      );
+    } else {
+      await MailboxAccount.updateOne(
+        { _id: mailbox._id },
+        { $set: { lastError: result.error } },
+      );
+    }
+    return res
+      .status(200)
+      .json(new ApiResponse(200, result, result.ok ? "Connection OK" : "Connection failed"));
+  }
+
+  defaults = await resolveDefaultsFromBody(data);
+  const settings = resolveServerSettings(defaults, data);
+  const result = await testMailboxConnection({
+    loginUsername,
+    password,
+    ...settings,
+  });
+  return res
+    .status(200)
+    .json(new ApiResponse(200, result, result.ok ? "Connection OK" : "Connection failed"));
+});
+
+export const createMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can create mailboxes");
+  }
+  const data = parseOrThrow(createMailboxSchema, req.body);
+  await assertBrandInScope(actor, data.brandId);
+
+  const brand = await Brand.findById(data.brandId).select("departmentId name");
+  if (!brand) throw new ApiError(404, "Brand not found");
+
+  if (data.brandEmailId) {
+    const be = await Domain.findById(data.brandEmailId).lean();
+    if (!be) throw new ApiError(404, "Brand Email row not found");
+  }
+
+  const defaults = await resolveDefaultsFromBody(data);
+  const loginUsername = data.loginUsername || data.emailAddress;
+
+  const test = await testMailboxConnection({
+    loginUsername,
+    password: data.password,
+    ...resolveServerSettings(defaults, data),
+  });
+  if (!test.ok) {
+    throw new ApiError(400, `Connection test failed: ${test.error}`);
+  }
+
+  const encryptedPassword = encryptMailboxPassword(data.password);
+  let created;
+  try {
+    created = await MailboxAccount.create({
+      brandId: data.brandId,
+      brandEmailId: data.brandEmailId || null,
+      emailAddress: data.emailAddress,
+      loginUsername,
+      displayName: data.displayName || "",
+      serverDefaultsId: defaults._id,
+      imapHost: data.imapHost ?? null,
+      imapPort: data.imapPort ?? null,
+      imapSecure: data.imapSecure ?? null,
+      smtpHost: data.smtpHost ?? null,
+      smtpPort: data.smtpPort ?? null,
+      smtpSecure: data.smtpSecure ?? null,
+      encryptedPassword,
+      isActive: true,
+      lastError: null,
+      lastConnectedAt: new Date(),
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      throw new ApiError(409, "Mailbox already exists for this brand/address");
+    }
+    throw err;
+  }
+
+  await writeMailboxAudit({
+    action: "mailbox_create",
+    actor,
+    mailboxId: created._id,
+    meta: { emailAddress: created.emailAddress },
+  });
+
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(201, sanitizeMailboxDoc(created), "Mailbox created"),
+    );
+});
+
+export const updateMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can edit mailboxes");
+  }
+  const data = parseOrThrow(updateMailboxSchema, req.body);
+  const { mailbox } = await loadMailboxInMappingScope(actor, req.params.id, {
+    forCredentials: true,
+  });
+
+  const full = await MailboxAccount.findById(mailbox._id).select(
+    "+encryptedPassword",
+  );
+  if (data.displayName !== undefined) full.displayName = data.displayName;
+  if (data.loginUsername !== undefined) full.loginUsername = data.loginUsername;
+  if (data.isActive !== undefined) full.isActive = data.isActive;
+  if (data.brandEmailId !== undefined) full.brandEmailId = data.brandEmailId;
+  for (const k of [
+    "imapHost",
+    "imapPort",
+    "imapSecure",
+    "smtpHost",
+    "smtpPort",
+    "smtpSecure",
+  ]) {
+    if (data[k] !== undefined) full[k] = data[k];
+  }
+
+  if (data.password) {
+    full.encryptedPassword = encryptMailboxPassword(data.password);
+  }
+
+  if (data.password || data.loginUsername) {
+    const defaults = await MailboxServerDefaults.findById(full.serverDefaultsId);
+    const pwd = data.password
+      ? data.password
+      : decryptMailboxPassword(full.encryptedPassword);
+    const test = await testMailboxConnection({
+      loginUsername: full.loginUsername,
+      password: pwd,
+      ...resolveServerSettings(defaults, full),
+    });
+    if (!test.ok) {
+      full.lastError = test.error;
+      throw new ApiError(400, `Connection test failed: ${test.error}`);
+    }
+    full.lastError = null;
+    full.lastConnectedAt = new Date();
+  }
+
+  await full.save();
+  await writeMailboxAudit({
+    action: data.password ? "mailbox_password_replace" : "mailbox_update",
+    actor,
+    mailboxId: full._id,
+    meta: { isActive: full.isActive },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, sanitizeMailboxDoc(full), "Mailbox updated"));
+});
+
+// ─── Assignments ─────────────────────────────────────────────────
+
+export const getMailboxAssignments = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const { mailbox, brand } = await loadMailboxInMappingScope(
+    actor,
+    req.params.id,
+  );
+
+  const rows = await MailboxUserAccess.find({ mailboxId: mailbox._id })
+    .populate("userId", "fullName email departmentId role status designation")
+    .populate("assignedBy", "fullName")
+    .lean();
+
+  const data = rows.map((r) => ({
+    ...r,
+    outOfScope: !isAssignmentDeptAligned(r.userId, brand),
+  }));
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, data, "Assignments fetched"));
+});
+
+export const assignUsersToMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const data = parseOrThrow(assignUsersSchema, req.body);
+  const { mailbox, brand } = await loadMailboxInMappingScope(
+    actor,
+    req.params.id,
+  );
+
+  const results = [];
+  for (const item of data.assignments) {
+    const target = await Employee.findById(item.userId);
+    assertCanAssignUser(actor, brand, target);
+
+    const row = await MailboxUserAccess.findOneAndUpdate(
+      { userId: item.userId, mailboxId: mailbox._id },
+      {
+        $set: {
+          permission: item.permission,
+          assignedBy: actor._id,
+        },
+        $setOnInsert: {
+          userId: item.userId,
+          mailboxId: mailbox._id,
+        },
+      },
+      { upsert: true, new: true },
+    );
+
+    await writeMailboxAudit({
+      action: "mailbox_assign",
+      actor,
+      mailboxId: mailbox._id,
+      targetUserId: item.userId,
+      meta: { permission: item.permission },
+    });
+    results.push(row);
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, results, "Users assigned"));
+});
+
+export const updateAssignment = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const data = parseOrThrow(updateAssignmentSchema, req.body);
+  const { mailbox, brand } = await loadMailboxInMappingScope(
+    actor,
+    req.params.id,
+  );
+
+  const access = await MailboxUserAccess.findOne({
+    mailboxId: mailbox._id,
+    userId: req.params.userId,
+  });
+  if (!access) throw new ApiError(404, "Assignment not found");
+
+  const target = await Employee.findById(req.params.userId);
+  assertCanAssignUser(actor, brand, target);
+
+  access.permission = data.permission;
+  access.assignedBy = actor._id;
+  await access.save();
+
+  await writeMailboxAudit({
+    action: "mailbox_assignment_update",
+    actor,
+    mailboxId: mailbox._id,
+    targetUserId: req.params.userId,
+    meta: { permission: data.permission },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, access, "Assignment updated"));
+});
+
+export const removeAssignment = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const { mailbox, brand } = await loadMailboxInMappingScope(
+    actor,
+    req.params.id,
+  );
+
+  const target = await Employee.findById(req.params.userId);
+  // Allow remove even if out of scope for admin; dep-admin only if still in scope brand
+  if (!canMapAllDepartments(actor)) {
+    const actorDept = actorDepartmentId(actor);
+    if (String(brand.departmentId) !== String(actorDept)) {
+      throw new ApiError(403, "Outside your department scope");
+    }
+    if (
+      target &&
+      String(target.departmentId) !== String(actorDept)
+    ) {
+      // still allow remove of stale assignment in own mailbox
+    }
+  }
+
+  const deleted = await MailboxUserAccess.findOneAndDelete({
+    mailboxId: mailbox._id,
+    userId: req.params.userId,
+  });
+  if (!deleted) throw new ApiError(404, "Assignment not found");
+
+  await writeMailboxAudit({
+    action: "mailbox_unassign",
+    actor,
+    mailboxId: mailbox._id,
+    targetUserId: req.params.userId,
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { removed: true }, "Assignment removed"));
+});
+
+export const listUsersForAssign = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  const users = await listAssignableUsers(actor, {
+    departmentId: req.query.departmentId,
+    search: req.query.search,
+  });
+  return res.status(200).json(new ApiResponse(200, users, "Users fetched"));
+});
+
+/** By-user view: all assignments for one user within actor scope */
+export const getAssignmentsByUser = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+
+  const target = await Employee.findById(req.params.userId)
+    .select("fullName email departmentId role status")
+    .populate("departmentId", "name")
+    .lean();
+  if (!target) throw new ApiError(404, "User not found");
+
+  if (!canMapAllDepartments(actor)) {
+    if (String(target.departmentId?._id || target.departmentId) !== actorDepartmentId(actor)) {
+      throw new ApiError(403, "User is outside your department scope");
+    }
+  }
+
+  const brandIds = await scopedBrandIds(actor);
+  const mailboxQuery = brandIds ? { brandId: { $in: brandIds } } : {};
+  const scopedMailboxes = await MailboxAccount.find(mailboxQuery)
+    .select("_id")
+    .lean();
+  const scopedIds = scopedMailboxes.map((m) => m._id);
+
+  const rows = await MailboxUserAccess.find({
+    userId: target._id,
+    mailboxId: { $in: scopedIds },
+  })
+    .populate({
+      path: "mailboxId",
+      populate: {
+        path: "brandId",
+        select: "name departmentId",
+        populate: { path: "departmentId", select: "name" },
+      },
+    })
+    .lean();
+
+  const data = rows.map((r) => ({
+    ...r,
+    outOfScope: !isAssignmentDeptAligned(target, r.mailboxId?.brandId),
+  }));
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { user: target, assignments: data },
+      "User assignments fetched",
+    ),
+  );
+});
+
+export const setUserAssignments = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+
+  const raw = req.body?.assignments;
+  if (!Array.isArray(raw) || !raw.length) {
+    throw new ApiError(400, "assignments required");
+  }
+
+  const target = await Employee.findById(req.params.userId);
+  if (!target) throw new ApiError(404, "User not found");
+
+  const results = [];
+  for (const item of raw) {
+    if (
+      !item.mailboxId ||
+      !["read", "read_send", "manage"].includes(item.permission)
+    ) {
+      throw new ApiError(400, "Each assignment needs mailboxId and permission");
+    }
+    const { mailbox, brand } = await loadMailboxInMappingScope(
+      actor,
+      item.mailboxId,
+    );
+    assertCanAssignUser(actor, brand, target);
+
+    const row = await MailboxUserAccess.findOneAndUpdate(
+      { userId: target._id, mailboxId: mailbox._id },
+      {
+        $set: { permission: item.permission, assignedBy: actor._id },
+        $setOnInsert: { userId: target._id, mailboxId: mailbox._id },
+      },
+      { upsert: true, new: true },
+    );
+    await writeMailboxAudit({
+      action: "mailbox_assign",
+      actor,
+      mailboxId: mailbox._id,
+      targetUserId: target._id,
+      meta: { permission: item.permission, via: "by_user" },
+    });
+    results.push(row);
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, results, "User assignments saved"));
+});

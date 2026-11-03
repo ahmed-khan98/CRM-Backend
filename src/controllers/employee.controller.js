@@ -19,6 +19,10 @@ import {
   recordDesignationChange,
 } from "../utils/designationHistory.js";
 import mongoose from "mongoose";
+import {
+  HIDDEN_EMPLOYEE_EMAILS,
+  withHiddenEmployeesExcluded,
+} from "../utils/hiddenEmployees.js";
 
 const pickHrmsFields = (body) => {
   const emergencyContact = parseMaybeJson(body.emergencyContact, undefined);
@@ -338,10 +342,11 @@ const deleteEmployee = asyncHandler(async (req, res) => {
 });
 
 const getAllEmployees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find({
-    role: { $ne: "ADMIN" },
-    ...req.roleFilter,
-  })
+  const employees = await Employee.find(
+    withHiddenEmployeesExcluded({
+      ...req.roleFilter,
+    }),
+  )
     .select("-password")
     .sort({ createdAt: -1 })
     .populate("departmentId", "name");
@@ -356,10 +361,11 @@ const getAllEmployees = asyncHandler(async (req, res) => {
 
 // Unfiltered list for task/sale assignment — any authenticated user
 const getAssignees = asyncHandler(async (req, res) => {
-  const employees = await Employee.find({
-    role: { $ne: "ADMIN" },
-    status: { $ne: "block" },
-  })
+  const employees = await Employee.find(
+    withHiddenEmployeesExcluded({
+      status: { $ne: "block" },
+    }),
+  )
     .select("fullName image departmentId role status")
     .sort({ fullName: 1 })
     .populate("departmentId", "name");
@@ -376,7 +382,10 @@ const getEmployeeById = asyncHandler(async (req, res) => {
     .populate("departmentId", "name");
   if (!employee) {
     throw new ApiError(404, "Employee not found");
-    // return res.status(404).json({ error: 'Employee not found' });
+  }
+  const email = String(employee.email || "").toLowerCase();
+  if (HIDDEN_EMPLOYEE_EMAILS.includes(email)) {
+    throw new ApiError(404, "Employee not found");
   }
   return res.status(200).json(new ApiResponse(200, employee, "Employee Found"));
 });
@@ -384,8 +393,9 @@ const getEmployeeById = asyncHandler(async (req, res) => {
 const getEmployeesByDepartId = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const employee = await Employee.find({ role: { $ne: "ADMIN" },
-    departmentId: id })
+  const employee = await Employee.find(
+    withHiddenEmployeesExcluded({ departmentId: id }),
+  )
     .select("-password")
     .populate("departmentId", "name");
   if (!employee) {

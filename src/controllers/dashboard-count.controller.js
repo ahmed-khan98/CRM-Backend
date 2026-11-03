@@ -12,6 +12,7 @@ import {
   ensurePayrollDefaults,
 } from "../utils/payrollHelpers.js";
 import moment from "moment-timezone";
+import { withHiddenEmployeesExcluded } from "../utils/hiddenEmployees.js";
 
 const TZ = "Asia/Karachi";
 const SUPER_ROLES = ["ADMIN", "SUBADMIN", "HR_ADMIN", "FINANCE_ADMIN"];
@@ -25,11 +26,12 @@ const getTodayShiftDate = () => {
 
 const summarizeTeamDailyAttendance = async (req) => {
   const shiftDate = getTodayShiftDate();
-  const employees = await Employee.find({
-    status: "active",
-    role: { $ne: "ADMIN" },
-    ...req.roleFilter,
-  }).select("_id");
+  const employees = await Employee.find(
+    withHiddenEmployeesExcluded({
+      status: "active",
+      ...req.roleFilter,
+    }),
+  ).select("_id");
 
   const records = await Attendance.find({
     employeeId: { $in: employees.map((emp) => emp._id) },

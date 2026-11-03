@@ -3,6 +3,7 @@ import { Employee } from "../../models/employee.model.js";
 import { MailboxAccount } from "../../models/mailboxAccount.model.js";
 import { MailboxUserAccess } from "../../models/mailboxUserAccess.model.js";
 import { ApiError } from "../ApiError.js";
+import { withHiddenEmployeesExcluded } from "../hiddenEmployees.js";
 
 /** @typedef {"ADMIN"|"SUBADMIN"|"DEP_ADMIN"|"USER"|"HR_ADMIN"|"FINANCE_ADMIN"} MailboxRole */
 /** @typedef {"read"|"read_send"|"manage"} MailboxPermission */
@@ -169,10 +170,9 @@ export function assertCanAssignUser(actor, brand, targetUser) {
  * @param {{ departmentId?: string, search?: string }} [filters]
  */
 export async function listAssignableUsers(actor, filters = {}) {
-  const query = {
+  const query = withHiddenEmployeesExcluded({
     status: "active",
-    role: { $ne: "ADMIN" },
-  };
+  });
 
   if (canMapAllDepartments(actor)) {
     if (filters.departmentId) {

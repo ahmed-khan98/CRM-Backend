@@ -7,6 +7,7 @@ import { DeductionType } from "../models/deductionType.model.js";
 import { PayrollSettings } from "../models/payrollSettings.model.js";
 import { EmployeeSalaryHistory } from "../models/employeeSalaryHistory.model.js";
 import { holidayDateSet } from "./leaveHelpers.js";
+import { withHiddenEmployeesExcluded } from "./hiddenEmployees.js";
 
 export const TZ = "Asia/Karachi";
 export const EMP_SAFE =
@@ -373,11 +374,10 @@ export async function snapshotSalary(employee) {
 }
 
 export async function scopedPayrollEmployees(req, employeeId) {
-  const query = {
+  const query = withHiddenEmployeesExcluded({
     status: "active",
-    role: { $ne: "ADMIN" },
     ...(req.roleFilter || {}),
-  };
+  });
   if (employeeId) query._id = employeeId;
   return Employee.find(query)
     .select(EMP_SAFE)

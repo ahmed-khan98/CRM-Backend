@@ -3,6 +3,7 @@ import { LeaveType } from "../models/leaveType.model.js";
 import { LeaveBalance } from "../models/leaveBalance.model.js";
 import { Holiday } from "../models/holiday.model.js";
 import { Employee } from "../models/employee.model.js";
+import { withHiddenEmployeesExcluded } from "./hiddenEmployees.js";
 
 export const TZ = "Asia/Karachi";
 export const EMP_SAFE_FIELDS = "fullName designation image departmentId role email";
@@ -67,11 +68,10 @@ export function datesOverlap(aFrom, aTo, bFrom, bTo) {
 }
 
 export async function scopedEmployees(req, employeeId) {
-  const query = {
+  const query = withHiddenEmployeesExcluded({
     status: "active",
-    role: { $ne: "ADMIN" },
     ...(req.roleFilter || {}),
-  };
+  });
   if (employeeId && employeeId !== "undefined" && employeeId !== "") {
     query._id = employeeId;
   }

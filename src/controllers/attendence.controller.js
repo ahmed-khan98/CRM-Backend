@@ -16,6 +16,7 @@ import {
   payCycleRange,
 } from "../utils/payrollHelpers.js";
 import { holidayDateSet } from "../utils/leaveHelpers.js";
+import { withHiddenEmployeesExcluded } from "../utils/hiddenEmployees.js";
 
 const TimeIn = asyncHandler(async (req, res) => {
   const employee = await Employee.findById(req.user._id);
@@ -272,11 +273,10 @@ const getAllEmployeeAttendance = asyncHandler(async (req, res) => {
   let query = {};
 
   // 1. Employees Filter
-  let employeeListQuery = {
+  let employeeListQuery = withHiddenEmployeesExcluded({
     status: "active",
-    role: { $ne: "ADMIN" },
     ...req.roleFilter,
-  };
+  });
   if (employeeId && employeeId !== "undefined" && employeeId !== "") {
     employeeListQuery._id = employeeId;
   }

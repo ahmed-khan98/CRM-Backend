@@ -33,6 +33,7 @@ const saleSchema = new Schema(
       type: String,
       enum: [
         "Kinatech Business Solutions LLC",
+        "Skyliner Trading LLC",
         "Augmentus",
         "Zelle",
         "Bank Transfer",

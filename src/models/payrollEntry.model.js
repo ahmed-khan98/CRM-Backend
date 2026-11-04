@@ -39,7 +39,11 @@ const payrollEntrySchema = new Schema(
     pf: { type: Number, default: 0 },
     deductionsTotal: { type: Number, default: 0 },
     allowancesTotal: { type: Number, default: 0 },
+    /** Payroll-run only — does not update employee profile salary */
     grossPay: { type: Number, default: 0 },
+    /** Payroll-run only bonus; added to netPay */
+    incentive: { type: Number, default: 0 },
+    incentiveNote: { type: String, default: "" },
     netPay: { type: Number, default: 0 },
     status: {
       type: String,

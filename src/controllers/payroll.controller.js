@@ -363,6 +363,12 @@ const unlockRun = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, { run: fresh, entries: populated }, "Payroll unlocked"));
 });
 
+/**
+ * Payroll-entry adjustments only (never touches Employee salary profile):
+ * - optional extra deduction
+ * - optional incentive (feeds into net formula)
+ * - optional netPay override for this run
+ */
 const addEntryDeduction = asyncHandler(async (req, res) => {
   await assertManage(req);
   const entry = await PayrollEntry.findById(req.params.id);
@@ -371,18 +377,47 @@ const addEntryDeduction = asyncHandler(async (req, res) => {
   if (!run || ["finalized", "paid"].includes(run.status)) {
     throw new ApiError(400, "Locked payroll cannot be edited");
   }
-  const { name, amount, note } = req.body;
-  if (!name?.trim() || !amount) throw new ApiError(400, "Name and amount are required");
-  entry.extraDeductions.push({
-    name: name.trim(),
-    amount: Number(amount) || 0,
-    note: note || "",
-  });
+  const { name, amount, note, netPay, incentive, incentiveNote } = req.body;
+
+  const hasDeduction = Boolean(name?.trim()) && amount !== undefined && amount !== "";
+  const hasNet = netPay !== undefined && netPay !== "";
+  const hasIncentive = incentive !== undefined && incentive !== "";
+
+  if (!hasDeduction && !hasNet && !hasIncentive) {
+    throw new ApiError(
+      400,
+      "Provide a deduction, net pay, and/or incentive to save",
+    );
+  }
+
+  if (hasDeduction) {
+    if (!name?.trim()) throw new ApiError(400, "Deduction name is required");
+    entry.extraDeductions.push({
+      name: name.trim(),
+      amount: Math.max(0, Number(amount) || 0),
+      note: note || "",
+    });
+  }
+
+  if (hasIncentive) {
+    entry.incentive = Math.max(0, Number(incentive) || 0);
+    if (incentiveNote !== undefined) {
+      entry.incentiveNote = String(incentiveNote || "").trim();
+    }
+  }
 
   applyEntryTotals(entry);
+
+  // Net pay override for this run only (after formula / incentive)
+  if (hasNet) {
+    entry.netPay = Math.max(0, Math.round(Number(netPay) || 0));
+  }
+
   await entry.save();
   await refreshRunTotals(entry.payrollRunId);
-  return res.status(200).json(new ApiResponse(200, entry, "Deduction added"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, entry, "Payroll entry updated"));
 });
 
 const updateEntryAmounts = asyncHandler(async (req, res) => {
@@ -424,6 +459,15 @@ const updateEntryAmounts = asyncHandler(async (req, res) => {
       amount: Math.max(0, Number(d.amount) || 0),
       note: d.note || "",
     }));
+  }
+  if (req.body.grossPay !== undefined) {
+    entry.grossPay = Math.max(0, Number(req.body.grossPay) || 0);
+  }
+  if (req.body.incentive !== undefined) {
+    entry.incentive = Math.max(0, Number(req.body.incentive) || 0);
+  }
+  if (req.body.incentiveNote !== undefined) {
+    entry.incentiveNote = String(req.body.incentiveNote || "").trim();
   }
 
   applyEntryTotals(entry);

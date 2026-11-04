@@ -474,7 +474,13 @@ export function applyEntryTotals(entry) {
     Number(entry.tax || 0) +
     Number(entry.pf || 0) +
     extra;
-  entry.netPay = Math.max(0, Math.round(Number(entry.grossPay || 0) - entry.deductionsTotal));
+  const incentive = Math.max(0, Number(entry.incentive || 0));
+  entry.incentive = incentive;
+  // Net = gross − deductions + incentive (all payroll-entry scoped)
+  entry.netPay = Math.max(
+    0,
+    Math.round(Number(entry.grossPay || 0) - entry.deductionsTotal + incentive),
+  );
   return entry;
 }
 

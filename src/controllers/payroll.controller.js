@@ -14,6 +14,7 @@ import {
   attendanceBreakdown,
   computeEntryPay,
   applyEntryTotals,
+  recalcAttendanceDeductionsFromGross,
   recalcTotals,
   maskAccount,
   payCycleRange,
@@ -366,6 +367,7 @@ const unlockRun = asyncHandler(async (req, res) => {
 /**
  * Payroll-entry adjustments only (never touches Employee salary profile):
  * - optional extra deduction
+ * - optional basicSalary → updates gross (basic + allowances), recalc late/absent/half
  * - optional incentive (feeds into net formula)
  * - optional netPay override for this run
  */
@@ -377,16 +379,19 @@ const addEntryDeduction = asyncHandler(async (req, res) => {
   if (!run || ["finalized", "paid"].includes(run.status)) {
     throw new ApiError(400, "Locked payroll cannot be edited");
   }
-  const { name, amount, note, netPay, incentive, incentiveNote } = req.body;
+  const { name, amount, note, basicSalary, netPay, incentive, incentiveNote } =
+    req.body;
 
-  const hasDeduction = Boolean(name?.trim()) && amount !== undefined && amount !== "";
+  const hasDeduction =
+    Boolean(name?.trim()) && amount !== undefined && amount !== "";
+  const hasBasic = basicSalary !== undefined && basicSalary !== "";
   const hasNet = netPay !== undefined && netPay !== "";
   const hasIncentive = incentive !== undefined && incentive !== "";
 
-  if (!hasDeduction && !hasNet && !hasIncentive) {
+  if (!hasDeduction && !hasBasic && !hasNet && !hasIncentive) {
     throw new ApiError(
       400,
-      "Provide a deduction, net pay, and/or incentive to save",
+      "Provide a deduction, basic salary, net pay, and/or incentive to save",
     );
   }
 
@@ -399,6 +404,28 @@ const addEntryDeduction = asyncHandler(async (req, res) => {
     });
   }
 
+  if (hasBasic) {
+    entry.basicSalary = Math.max(0, Number(basicSalary) || 0);
+    // Keep allowances; rebuild gross for this run only
+    entry.grossPay = Math.max(
+      0,
+      Math.round(
+        Number(entry.basicSalary || 0) + Number(entry.allowancesTotal || 0),
+      ),
+    );
+    const settings = await ensurePayrollDefaults();
+    const { map } = await getDeductionMap();
+    const absentType =
+      map?.absent || Object.values(map || {}).find((t) => t.code === "absent");
+    const absentRatePercent = absentType
+      ? Number(absentType.defaultAmount ?? 100)
+      : 100;
+    recalcAttendanceDeductionsFromGross(entry, {
+      lateLatesPerDay: settings.lateLatesPerDay || 2,
+      absentRatePercent,
+    });
+  }
+
   if (hasIncentive) {
     entry.incentive = Math.max(0, Number(incentive) || 0);
     if (incentiveNote !== undefined) {
@@ -408,7 +435,7 @@ const addEntryDeduction = asyncHandler(async (req, res) => {
 
   applyEntryTotals(entry);
 
-  // Net pay override for this run only (after formula / incentive)
+  // Net pay override for this run only (after formula / incentive / gross recalc)
   if (hasNet) {
     entry.netPay = Math.max(0, Math.round(Number(netPay) || 0));
   }
@@ -460,8 +487,38 @@ const updateEntryAmounts = asyncHandler(async (req, res) => {
       note: d.note || "",
     }));
   }
-  if (req.body.grossPay !== undefined) {
+  if (req.body.basicSalary !== undefined) {
+    entry.basicSalary = Math.max(0, Number(req.body.basicSalary) || 0);
+    entry.grossPay = Math.max(
+      0,
+      Math.round(
+        Number(entry.basicSalary || 0) + Number(entry.allowancesTotal || 0),
+      ),
+    );
+    const settings = await ensurePayrollDefaults();
+    const { map } = await getDeductionMap();
+    const absentType =
+      map?.absent ||
+      Object.values(map || {}).find((t) => t.code === "absent");
+    recalcAttendanceDeductionsFromGross(entry, {
+      lateLatesPerDay: settings.lateLatesPerDay || 2,
+      absentRatePercent: absentType
+        ? Number(absentType.defaultAmount ?? 100)
+        : 100,
+    });
+  } else if (req.body.grossPay !== undefined) {
     entry.grossPay = Math.max(0, Number(req.body.grossPay) || 0);
+    const settings = await ensurePayrollDefaults();
+    const { map } = await getDeductionMap();
+    const absentType =
+      map?.absent ||
+      Object.values(map || {}).find((t) => t.code === "absent");
+    recalcAttendanceDeductionsFromGross(entry, {
+      lateLatesPerDay: settings.lateLatesPerDay || 2,
+      absentRatePercent: absentType
+        ? Number(absentType.defaultAmount ?? 100)
+        : 100,
+    });
   }
   if (req.body.incentive !== undefined) {
     entry.incentive = Math.max(0, Number(req.body.incentive) || 0);

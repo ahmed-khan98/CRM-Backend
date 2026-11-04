@@ -462,6 +462,32 @@ export function computeEntryPay({
   };
 }
 
+/**
+ * When payroll-entry gross changes, rebuild late/absent/half amounts from
+ * existing day counts using daily = gross ÷ 30 (same as generate).
+ */
+export function recalcAttendanceDeductionsFromGross(
+  entry,
+  { lateLatesPerDay = 2, absentRatePercent = 100 } = {},
+) {
+  const CALENDAR_DAYS = 30;
+  const gross = Math.max(0, Number(entry.grossPay || 0));
+  const daily = gross > 0 ? gross / CALENDAR_DAYS : 0;
+  const latesPerDay = Math.max(1, Number(lateLatesPerDay) || 2);
+  const rateFactor = Number(absentRatePercent || 100) / 100;
+
+  entry.absentDeduction = Math.round(
+    (Number(entry.absentDays) || 0) * daily * rateFactor,
+  );
+  entry.halfDayDeduction = Math.round(
+    (Number(entry.halfDays) || 0) * 0.5 * daily * rateFactor,
+  );
+  entry.lateDeduction = Math.round(
+    Math.floor((Number(entry.lateDays) || 0) / latesPerDay) * daily,
+  );
+  return entry;
+}
+
 export function applyEntryTotals(entry) {
   const extra = (entry.extraDeductions || []).reduce(
     (s, d) => s + Number(d.amount || 0),

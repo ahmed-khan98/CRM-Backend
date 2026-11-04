@@ -38,9 +38,9 @@ export function canAccessMapping(user) {
   return ["ADMIN", "SUBADMIN", "DEP_ADMIN"].includes(mailboxRole(user));
 }
 
-/** Server settings + credentials (create/edit password) */
+/** Create/edit mailbox credentials — ADMIN + SUBADMIN (mapping parity) */
 export function canManageCredentials(user) {
-  return isMailboxAdmin(user);
+  return ["ADMIN", "SUBADMIN"].includes(mailboxRole(user));
 }
 
 export function canManageServerSettings(user) {
@@ -110,6 +110,12 @@ export async function loadMailboxInMappingScope(actor, mailboxId, opts = {}) {
   }
   const mailbox = await MailboxAccount.findById(mailboxId);
   if (!mailbox) throw new ApiError(404, "Mailbox not found");
+  if (mailbox.kind === "personal") {
+    throw new ApiError(
+      400,
+      "Personal company mailboxes are managed under My company email, not Email Mapping",
+    );
+  }
   await assertBrandInScope(actor, mailbox.brandId);
   const brand = await Brand.findById(mailbox.brandId)
     .select("name departmentId")
@@ -199,20 +205,35 @@ export async function listAssignableUsers(actor, filters = {}) {
 }
 
 /**
- * Active assignment for mail content (Phase 2+). Requires dept alignment.
+ * Active assignment for mail content (Phase 2+).
+ * - personal: owner only, full manage (no brand / assignment row required)
+ * - brand: MailboxUserAccess + dept alignment
  * @param {string} userId
  * @param {string} mailboxId
- * @returns {Promise<{ access: object, mailbox: object, brand: object }|null>}
+ * @returns {Promise<{ access: object, mailbox: object, brand: object|null }|null>}
  */
 export async function getActiveMailboxAccess(userId, mailboxId) {
+  const mailbox = await MailboxAccount.findById(mailboxId).lean();
+  if (!mailbox || !mailbox.isActive) return null;
+
+  if (mailbox.kind === "personal") {
+    if (String(mailbox.ownerUserId) !== String(userId)) return null;
+    return {
+      access: {
+        userId,
+        mailboxId: mailbox._id,
+        permission: "manage",
+      },
+      mailbox,
+      brand: null,
+    };
+  }
+
   const access = await MailboxUserAccess.findOne({
     userId,
     mailboxId,
   }).lean();
   if (!access) return null;
-
-  const mailbox = await MailboxAccount.findById(mailboxId).lean();
-  if (!mailbox || !mailbox.isActive) return null;
 
   const brand = await Brand.findById(mailbox.brandId)
     .select("name departmentId")
@@ -223,6 +244,11 @@ export async function getActiveMailboxAccess(userId, mailboxId) {
   if (!isAssignmentDeptAligned(user, brand)) return null;
 
   return { access, mailbox, brand };
+}
+
+/** Brand mailboxes only (mapping UI) — excludes personal / missing-kind treated as brand */
+export function brandMailboxFilter() {
+  return { kind: { $ne: "personal" } };
 }
 
 /**

@@ -6,6 +6,7 @@ import { sendViaMailboxSmtp } from "../../services/mailbox/smtpSend.js";
 import { appendOutboundMessage } from "../../services/mailbox/imapService.js";
 import { formatMailboxConnError } from "../../services/mailbox/imapClient.js";
 import { generateMailboxMessageId } from "./messageId.js";
+import { assertPersonalInternalRecipients } from "./personalInternal.js";
 
 const INTERVAL_MS = 60 * 1000;
 const STALE_SENDING_MS = 10 * 60 * 1000;
@@ -167,7 +168,7 @@ async function executeJob(job) {
 
   try {
     const mailbox = await MailboxAccount.findById(job.mailboxId)
-      .select("loginUsername emailAddress")
+      .select("loginUsername emailAddress kind")
       .lean();
     const fromHint =
       mailbox?.loginUsername || mailbox?.emailAddress || "mailbox.local";
@@ -181,6 +182,12 @@ async function executeJob(job) {
       );
       job.smtpMessageId = messageId;
     }
+
+    assertPersonalInternalRecipients(mailbox, {
+      to: job.to || [],
+      cc: job.cc || [],
+      bcc: job.bcc || [],
+    });
 
     const attachments = (job.attachments || []).map((a) => ({
       filename: a.filename,

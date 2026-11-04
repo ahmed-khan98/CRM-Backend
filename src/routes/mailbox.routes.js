@@ -4,6 +4,7 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 import {
   listServerDefaults,
   upsertServerDefaults,
+  deleteServerDefaults,
   listMailboxesGrouped,
   listBrandEmailsForPicker,
   listBrandsForMapping,
@@ -11,6 +12,7 @@ import {
   testConnection,
   createMailbox,
   updateMailbox,
+  deleteMailbox,
   getMailboxAssignments,
   assignUsersToMailbox,
   updateAssignment,
@@ -18,6 +20,10 @@ import {
   listUsersForAssign,
   getAssignmentsByUser,
   setUserAssignments,
+  getMyPersonalMailbox,
+  listPersonalMailboxes,
+  upsertMyPersonalMailbox,
+  deleteMyPersonalMailbox,
 } from "../controllers/mailbox.controller.js";
 import {
   listMyMailboxes,
@@ -69,6 +75,7 @@ router.use(mailboxLimiter);
 // Server defaults (admin only — enforced in controller)
 router.get("/server-defaults", listServerDefaults);
 router.put("/server-defaults", upsertServerDefaults);
+router.delete("/server-defaults/id/:id", deleteServerDefaults);
 
 // Mapping lists
 router.get("/mailboxes", listMailboxesGrouped);
@@ -81,6 +88,7 @@ router.get("/users", listUsersForAssign);
 router.post("/test-connection", testConnection);
 router.post("/mailboxes", createMailbox);
 router.patch("/mailboxes/:id", updateMailbox);
+router.delete("/mailboxes/:id", deleteMailbox);
 
 // Assignments by mailbox
 router.get("/mailboxes/:id/assignments", getMailboxAssignments);
@@ -91,6 +99,12 @@ router.delete("/mailboxes/:id/assignments/:userId", removeAssignment);
 // By-user view
 router.get("/users/:userId/assignments", getAssignmentsByUser);
 router.post("/users/:userId/assignments", setUserAssignments);
+
+// Personal / company email (1 per user, no brand) — admin creates
+router.get("/personal/all", listPersonalMailboxes);
+router.get("/personal", getMyPersonalMailbox);
+router.put("/personal", upsertMyPersonalMailbox);
+router.delete("/personal", deleteMyPersonalMailbox);
 
 // ── Phase 2: mail content (assignment-gated) ──
 router.get("/my-mailboxes", listMyMailboxes);

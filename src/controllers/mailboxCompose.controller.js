@@ -27,6 +27,7 @@ import {
   assertSafeHeaderValue,
   validateAndNormalizeAttachments,
 } from "../utils/mailbox/mailSchemas.js";
+import { assertPersonalInternalRecipients } from "../utils/mailbox/personalInternal.js";
 
 async function requireSendAccess(req, mailboxId) {
   const actor = await loadActorFromDb(req.user._id);
@@ -65,8 +66,9 @@ function wrapImap(err, actor) {
 /** POST /mail/:mailboxId/send */
 export const sendMail = asyncHandler(async (req, res) => {
   const mailboxId = req.params.mailboxId;
-  const { actor } = await requireSendAccess(req, mailboxId);
+  const { actor, mailbox } = await requireSendAccess(req, mailboxId);
   const data = parseBody(composeMailSchema, req.body);
+  assertPersonalInternalRecipients(mailbox, data);
 
   let sent;
   try {

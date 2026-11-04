@@ -8,6 +8,9 @@ import { Employee } from "../models/employee.model.js";
 import { MailboxServerDefaults } from "../models/mailboxServerDefaults.model.js";
 import { MailboxAccount } from "../models/mailboxAccount.model.js";
 import { MailboxUserAccess } from "../models/mailboxUserAccess.model.js";
+import { MailboxScheduled } from "../models/mailboxScheduled.model.js";
+import { MailboxSent } from "../models/mailboxSent.model.js";
+import { MailboxActivity } from "../models/mailboxActivity.model.js";
 import {
   encryptMailboxPassword,
   decryptMailboxPassword,
@@ -16,6 +19,7 @@ import {
 import {
   loadActorFromDb,
   requireMappingAccess,
+  canAccessMapping,
   canManageCredentials,
   canManageServerSettings,
   canMapAllDepartments,
@@ -26,6 +30,7 @@ import {
   listAssignableUsers,
   isAssignmentDeptAligned,
   actorDepartmentId,
+  brandMailboxFilter,
 } from "../utils/mailbox/permissions.js";
 import { writeMailboxAudit } from "../utils/mailbox/audit.js";
 import {
@@ -39,6 +44,7 @@ import {
   testConnectionSchema,
   assignUsersSchema,
   updateAssignmentSchema,
+  upsertPersonalMailboxSchema,
 } from "../utils/mailbox/schemas.js";
 
 async function getActor(req) {
@@ -85,11 +91,9 @@ async function findBrandEmailDeptMismatches() {
 // ─── Server defaults ─────────────────────────────────────────────
 
 export const listServerDefaults = asyncHandler(async (req, res) => {
-  const actor = await getActor(req);
-  requireMappingAccess(actor);
-  if (!canManageServerSettings(actor)) {
-    throw new ApiError(403, "Only admin can view server settings");
-  }
+  // Any logged-in user may read domains (needed for personal mailbox setup).
+  // Write/delete remain admin-only.
+  await getActor(req);
   const rows = await MailboxServerDefaults.find({}).sort({ domain: 1 }).lean();
   return res
     .status(200)
@@ -118,6 +122,49 @@ export const upsertServerDefaults = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, row, "Server defaults saved"));
 });
 
+export const deleteServerDefaults = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageServerSettings(actor)) {
+    throw new ApiError(403, "Only admin can delete server settings");
+  }
+
+  // Prefer id (path dots in domain names break Express :param matching)
+  const id = String(req.params.id || req.query.id || "").trim();
+  const domainQ = String(req.query.domain || req.params.domain || "")
+    .trim()
+    .toLowerCase();
+
+  let row = null;
+  if (id) {
+    row = await MailboxServerDefaults.findById(id);
+  } else if (domainQ) {
+    row = await MailboxServerDefaults.findOne({ domain: domainQ });
+  }
+  if (!row) throw new ApiError(404, "Domain settings not found");
+
+  const domain = row.domain;
+  const inUse = await MailboxAccount.countDocuments({
+    serverDefaultsId: row._id,
+  });
+  if (inUse > 0) {
+    throw new ApiError(
+      409,
+      `Cannot delete "${domain}" — ${inUse} mailbox(es) still use it. Reassign or delete those mailboxes first.`,
+    );
+  }
+
+  await MailboxServerDefaults.deleteOne({ _id: row._id });
+  await writeMailboxAudit({
+    action: "server_defaults_delete",
+    actor,
+    meta: { domain, id: String(row._id) },
+  });
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { domain, id: String(row._id) }, "Server defaults deleted"));
+});
+
 // ─── Mapping list ────────────────────────────────────────────────
 
 export const listMailboxesGrouped = asyncHandler(async (req, res) => {
@@ -125,7 +172,7 @@ export const listMailboxesGrouped = asyncHandler(async (req, res) => {
   requireMappingAccess(actor);
 
   const brandIds = await scopedBrandIds(actor);
-  const mailboxQuery = {};
+  const mailboxQuery = { ...brandMailboxFilter() };
   if (brandIds) {
     mailboxQuery.brandId = { $in: brandIds };
   }
@@ -319,10 +366,6 @@ async function resolveDefaultsFromBody(data) {
 
 export const testConnection = asyncHandler(async (req, res) => {
   const actor = await getActor(req);
-  requireMappingAccess(actor);
-  if (!canManageCredentials(actor)) {
-    throw new ApiError(403, "Only admin can test mailbox connections");
-  }
   const data = parseOrThrow(testConnectionSchema, req.body);
 
   let password = data.password;
@@ -334,7 +377,20 @@ export const testConnection = asyncHandler(async (req, res) => {
       "+encryptedPassword",
     );
     if (!mailbox) throw new ApiError(404, "Mailbox not found");
-    await assertBrandInScope(actor, mailbox.brandId);
+
+    if (mailbox.kind === "personal") {
+      const isOwner = String(mailbox.ownerUserId) === String(actor._id);
+      if (!isOwner && !canManageCredentials(actor)) {
+        throw new ApiError(403, "Not allowed to test this company email");
+      }
+    } else {
+      requireMappingAccess(actor);
+      if (!canManageCredentials(actor)) {
+        throw new ApiError(403, "Only admin can test mailbox connections");
+      }
+      await assertBrandInScope(actor, mailbox.brandId);
+    }
+
     defaults = await MailboxServerDefaults.findById(mailbox.serverDefaultsId);
     loginUsername = data.loginUsername || mailbox.loginUsername;
     if (!password) {
@@ -367,6 +423,18 @@ export const testConnection = asyncHandler(async (req, res) => {
     return res
       .status(200)
       .json(new ApiResponse(200, result, result.ok ? "Connection OK" : "Connection failed"));
+  }
+
+  // Ad-hoc test (new brand mailbox OR new personal company email)
+  const canMapCreds = canManageCredentials(actor);
+  const canAccessMap = canAccessMapping(actor);
+  if (!canMapCreds) {
+    // Regular users may only ad-hoc-test when providing domain+password (personal setup)
+    if (!data.domain || !data.password) {
+      throw new ApiError(403, "Only admin can test mailbox connections");
+    }
+  } else if (!canAccessMap) {
+    throw new ApiError(403, "Only admin can test mailbox connections");
   }
 
   defaults = await resolveDefaultsFromBody(data);
@@ -414,6 +482,8 @@ export const createMailbox = asyncHandler(async (req, res) => {
   let created;
   try {
     created = await MailboxAccount.create({
+      kind: "brand",
+      ownerUserId: null,
       brandId: data.brandId,
       brandEmailId: data.brandEmailId || null,
       emailAddress: data.emailAddress,
@@ -514,6 +584,39 @@ export const updateMailbox = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, sanitizeMailboxDoc(full), "Mailbox updated"));
+});
+
+export const deleteMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  requireMappingAccess(actor);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can delete mailboxes");
+  }
+  const { mailbox } = await loadMailboxInMappingScope(actor, req.params.id, {
+    forCredentials: true,
+  });
+
+  const mailboxId = mailbox._id;
+  const emailAddress = mailbox.emailAddress;
+
+  await Promise.all([
+    MailboxUserAccess.deleteMany({ mailboxId }),
+    MailboxScheduled.deleteMany({ mailboxId }),
+    MailboxSent.deleteMany({ mailboxId }),
+    MailboxActivity.deleteMany({ mailboxId }),
+  ]);
+  await MailboxAccount.deleteOne({ _id: mailboxId });
+
+  await writeMailboxAudit({
+    action: "mailbox_delete",
+    actor,
+    mailboxId,
+    meta: { emailAddress },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { id: String(mailboxId), emailAddress }, "Mailbox deleted"));
 });
 
 // ─── Assignments ─────────────────────────────────────────────────
@@ -689,7 +792,8 @@ export const getAssignmentsByUser = asyncHandler(async (req, res) => {
   }
 
   const brandIds = await scopedBrandIds(actor);
-  const mailboxQuery = brandIds ? { brandId: { $in: brandIds } } : {};
+  const mailboxQuery = { ...brandMailboxFilter() };
+  if (brandIds) mailboxQuery.brandId = { $in: brandIds };
   const scopedMailboxes = await MailboxAccount.find(mailboxQuery)
     .select("_id")
     .lean();
@@ -770,4 +874,228 @@ export const setUserAssignments = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, results, "User assignments saved"));
+});
+
+// ─── Personal / company mailbox (1 per user, no brand) ───────────
+
+export const getMyPersonalMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  const targetUserId = req.query.userId
+    ? String(req.query.userId)
+    : String(actor._id);
+
+  if (
+    targetUserId !== String(actor._id) &&
+    !canManageCredentials(actor)
+  ) {
+    throw new ApiError(403, "Only admin can view another user's company email");
+  }
+
+  const row = await MailboxAccount.findOne({
+    kind: "personal",
+    ownerUserId: targetUserId,
+  })
+    .populate("serverDefaultsId")
+    .lean();
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      row ? sanitizeMailboxDoc(row) : null,
+      row ? "Personal mailbox fetched" : "No personal mailbox",
+    ),
+  );
+});
+
+export const listPersonalMailboxes = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can list company emails");
+  }
+  const rows = await MailboxAccount.find({ kind: "personal" })
+    .populate({
+      path: "ownerUserId",
+      select: "fullName email departmentId status",
+      populate: { path: "departmentId", select: "name" },
+    })
+    .populate("serverDefaultsId", "domain")
+    .sort({ emailAddress: 1 })
+    .lean();
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      rows.map((r) => sanitizeMailboxDoc(r)),
+      "Company emails fetched",
+    ),
+  );
+});
+
+export const upsertMyPersonalMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(
+      403,
+      "Only admin can create or update company emails",
+    );
+  }
+  const data = parseOrThrow(upsertPersonalMailboxSchema, req.body);
+  if (!data.userId) {
+    throw new ApiError(400, "userId is required — pick the employee");
+  }
+
+  const target = await Employee.findById(data.userId)
+    .select("_id status")
+    .lean();
+  if (!target) throw new ApiError(404, "User not found");
+  if (target.status === "de active" || target.status === "block") {
+    throw new ApiError(400, "Cannot set mailbox for inactive user");
+  }
+  const ownerId = target._id;
+
+  const existing = await MailboxAccount.findOne({
+    kind: "personal",
+    ownerUserId: ownerId,
+  }).select("+encryptedPassword");
+
+  if (!existing && !data.password) {
+    throw new ApiError(400, "Password is required to create company email");
+  }
+
+  const defaults = await resolveDefaultsFromBody(data);
+  const loginUsername = data.loginUsername || data.emailAddress;
+  const passwordPlain = data.password
+    ? data.password
+    : existing
+      ? decryptMailboxPassword(existing.encryptedPassword)
+      : null;
+
+  const test = await testMailboxConnection({
+    loginUsername,
+    password: passwordPlain,
+    ...resolveServerSettings(defaults, data),
+  });
+  if (!test.ok) {
+    throw new ApiError(400, `Connection test failed: ${test.error}`);
+  }
+
+  let saved;
+  try {
+    if (existing) {
+      existing.kind = "personal";
+      existing.ownerUserId = ownerId;
+      existing.brandId = null;
+      existing.brandEmailId = null;
+      existing.emailAddress = data.emailAddress;
+      existing.loginUsername = loginUsername;
+      existing.displayName =
+        data.displayName !== undefined
+          ? data.displayName
+          : existing.displayName || "";
+      existing.serverDefaultsId = defaults._id;
+      if (data.imapHost !== undefined) existing.imapHost = data.imapHost;
+      if (data.imapPort !== undefined) existing.imapPort = data.imapPort;
+      if (data.imapSecure !== undefined) existing.imapSecure = data.imapSecure;
+      if (data.smtpHost !== undefined) existing.smtpHost = data.smtpHost;
+      if (data.smtpPort !== undefined) existing.smtpPort = data.smtpPort;
+      if (data.smtpSecure !== undefined) existing.smtpSecure = data.smtpSecure;
+      if (data.isActive !== undefined) existing.isActive = data.isActive;
+      if (data.password) {
+        existing.encryptedPassword = encryptMailboxPassword(data.password);
+      }
+      existing.lastError = null;
+      existing.lastConnectedAt = new Date();
+      saved = await existing.save();
+    } else {
+      saved = await MailboxAccount.create({
+        kind: "personal",
+        ownerUserId: ownerId,
+        brandId: null,
+        brandEmailId: null,
+        emailAddress: data.emailAddress,
+        loginUsername,
+        displayName: data.displayName || "",
+        serverDefaultsId: defaults._id,
+        imapHost: data.imapHost ?? null,
+        imapPort: data.imapPort ?? null,
+        imapSecure: data.imapSecure ?? null,
+        smtpHost: data.smtpHost ?? null,
+        smtpPort: data.smtpPort ?? null,
+        smtpSecure: data.smtpSecure ?? null,
+        encryptedPassword: encryptMailboxPassword(data.password),
+        isActive: data.isActive ?? true,
+        lastError: null,
+        lastConnectedAt: new Date(),
+      });
+    }
+  } catch (err) {
+    if (err?.code === 11000) {
+      throw new ApiError(
+        409,
+        "This user already has a company email, or address conflicts",
+      );
+    }
+    throw err;
+  }
+
+  await writeMailboxAudit({
+    action: existing ? "personal_mailbox_update" : "personal_mailbox_create",
+    actor,
+    mailboxId: saved._id,
+    targetUserId: ownerId,
+    meta: { emailAddress: saved.emailAddress, kind: "personal" },
+  });
+
+  return res
+    .status(existing ? 200 : 201)
+    .json(
+      new ApiResponse(
+        existing ? 200 : 201,
+        sanitizeMailboxDoc(saved),
+        existing ? "Company email updated" : "Company email created",
+      ),
+    );
+});
+
+export const deleteMyPersonalMailbox = asyncHandler(async (req, res) => {
+  const actor = await getActor(req);
+  if (!canManageCredentials(actor)) {
+    throw new ApiError(403, "Only admin can delete company emails");
+  }
+
+  const id = String(req.query.id || req.params.id || "").trim();
+  const targetUserId = String(req.query.userId || "").trim();
+
+  let row = null;
+  if (id) {
+    row = await MailboxAccount.findOne({ _id: id, kind: "personal" });
+  } else if (targetUserId) {
+    row = await MailboxAccount.findOne({
+      kind: "personal",
+      ownerUserId: targetUserId,
+    });
+  }
+  if (!row) throw new ApiError(404, "Company email not found");
+  const ownerRef = row.ownerUserId;
+
+  const mailboxId = row._id;
+  await Promise.all([
+    MailboxUserAccess.deleteMany({ mailboxId }),
+    MailboxScheduled.deleteMany({ mailboxId }),
+    MailboxSent.deleteMany({ mailboxId }),
+    MailboxActivity.deleteMany({ mailboxId }),
+  ]);
+  await MailboxAccount.deleteOne({ _id: mailboxId });
+
+  await writeMailboxAudit({
+    action: "personal_mailbox_delete",
+    actor,
+    mailboxId,
+    targetUserId: ownerRef,
+    meta: { emailAddress: row.emailAddress },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { id: String(mailboxId) }, "Company email deleted"));
 });

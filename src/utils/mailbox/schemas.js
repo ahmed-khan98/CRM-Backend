@@ -75,3 +75,24 @@ export const assignUsersSchema = z.object({
 export const updateAssignmentSchema = z.object({
   permission: z.enum(["read", "read_send", "manage"]),
 });
+
+/** Admin creates/updates company email for a specific employee */
+export const upsertPersonalMailboxSchema = z
+  .object({
+    userId: z.string().min(1),
+    emailAddress: z
+      .string()
+      .trim()
+      .email()
+      .transform((s) => s.toLowerCase()),
+    loginUsername: z.string().trim().min(1).optional(),
+    displayName: z.string().trim().optional().default(""),
+    password: z.string().min(1).optional(),
+    serverDefaultsId: z.string().min(1).optional(),
+    domain: z.string().trim().min(1).optional(),
+    isActive: z.boolean().optional(),
+    ...hostPort,
+  })
+  .refine((d) => d.serverDefaultsId || d.domain, {
+    message: "serverDefaultsId or domain is required",
+  });

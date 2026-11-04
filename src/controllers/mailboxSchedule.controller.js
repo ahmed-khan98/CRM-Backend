@@ -16,6 +16,7 @@ import {
 import { MailboxActivity } from "../models/mailboxActivity.model.js";
 import { lookupCrmByEmail } from "../utils/mailbox/crmLookup.js";
 import { validateAndNormalizeAttachments } from "../utils/mailbox/mailSchemas.js";
+import { assertPersonalInternalRecipients } from "../utils/mailbox/personalInternal.js";
 import {
   sanitizeScheduledDoc,
   sanitizeScheduledList,
@@ -96,7 +97,7 @@ export const listScheduled = asyncHandler(async (req, res) => {
 
 export const createScheduled = asyncHandler(async (req, res) => {
   const mailboxId = req.params.mailboxId;
-  const { actor } = await requireSend(req, mailboxId);
+  const { actor, mailbox } = await requireSend(req, mailboxId);
   const parsed = scheduleSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ApiError(
@@ -105,6 +106,7 @@ export const createScheduled = asyncHandler(async (req, res) => {
     );
   }
   const data = parsed.data;
+  assertPersonalInternalRecipients(mailbox, data);
   const sendAt = parseSendAt(data.sendAt);
   const attachments = validateAndNormalizeAttachments(data.attachments);
 

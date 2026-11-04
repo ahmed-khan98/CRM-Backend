@@ -3,13 +3,33 @@ import mongoose, { Schema } from "mongoose";
 /**
  * Mailbox credentials + address. Password is write-only (select: false).
  * Collection: mailbox_accounts
+ *
+ * kind:
+ * - brand — client-facing, linked to Brand (+ optional Brand Email)
+ * - personal — internal company mail, 1 per user, no brand/dept link
  */
 const mailboxAccountSchema = new Schema(
   {
+    kind: {
+      type: String,
+      enum: ["brand", "personal"],
+      default: "brand",
+      index: true,
+    },
+    /** Owner for personal mailboxes (exactly one personal per user) */
+    ownerUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "Employee",
+      default: null,
+      index: true,
+    },
     brandId: {
       type: Schema.Types.ObjectId,
       ref: "Brand",
-      required: true,
+      required: function requiredBrand() {
+        return this.kind !== "personal";
+      },
+      default: null,
       index: true,
     },
     /** Optional reference to existing Brand Email (Domain) row — read-only link */
@@ -60,7 +80,24 @@ const mailboxAccountSchema = new Schema(
   { timestamps: true, collection: "mailbox_accounts" },
 );
 
-mailboxAccountSchema.index({ brandId: 1, emailAddress: 1 }, { unique: true });
+mailboxAccountSchema.index(
+  { brandId: 1, emailAddress: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { kind: "brand", brandId: { $type: "objectId" } },
+  },
+);
+
+mailboxAccountSchema.index(
+  { ownerUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      kind: "personal",
+      ownerUserId: { $type: "objectId" },
+    },
+  },
+);
 
 export const MailboxAccount = mongoose.model(
   "MailboxAccount",

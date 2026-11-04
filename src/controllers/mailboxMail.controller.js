@@ -41,72 +41,108 @@ function wrapImapError(err, actor) {
   throw new ApiError(502, detail);
 }
 
-/** Assigned mailboxes for the logged-in user (Inbox switcher). */
+function toListItem(m, permission, canSeeConnDetail) {
+  const brand = m.brandId;
+  const doc = sanitizeMailboxDoc(m);
+  if (!canSeeConnDetail) {
+    doc.lastError = doc.lastError ? "unavailable" : null;
+  }
+  const isPersonal = m.kind === "personal";
+  return {
+    ...doc,
+    kind: isPersonal ? "personal" : "brand",
+    permission,
+    brandName: isPersonal ? "Company" : brand?.name || "",
+    departmentName: isPersonal
+      ? "Internal"
+      : brand?.departmentId?.name || "",
+    departmentId: isPersonal
+      ? null
+      : brand?.departmentId?._id || brand?.departmentId || null,
+    connectionStatus: doc.lastError ? "unavailable" : "ok",
+  };
+}
+
+/** Assigned brand mailboxes + own personal company mailbox (Inbox switcher). */
 export const listMyMailboxes = asyncHandler(async (req, res) => {
   const actor = await loadActorFromDb(req.user._id);
-  const accessRows = await MailboxUserAccess.find({ userId: actor._id }).lean();
-  if (!accessRows.length) {
-    return res
-      .status(200)
-      .json(new ApiResponse(200, { mailboxes: [] }, "No mailboxes assigned"));
-  }
-
-  const mailboxIds = accessRows.map((a) => a.mailboxId);
-  const mailboxes = await MailboxAccount.find({
-    _id: { $in: mailboxIds },
-    isActive: true,
-  })
-    .populate({
-      path: "brandId",
-      select: "name departmentId",
-      populate: { path: "departmentId", select: "name" },
-    })
-    .lean();
-
-  const accessByMb = new Map(
-    accessRows.map((a) => [String(a.mailboxId), a]),
-  );
-
   const canSeeConnDetail = canAccessMapping(actor);
   const list = [];
-  for (const m of mailboxes) {
-    const brand = m.brandId;
-    if (!isAssignmentDeptAligned(actor, brand)) continue;
-    const access = accessByMb.get(String(m._id));
-    const doc = sanitizeMailboxDoc(m);
-    // Non-mapping roles get a generic status only — no host/auth detail
-    if (!canSeeConnDetail) {
-      doc.lastError = doc.lastError ? "unavailable" : null;
-    }
-    list.push({
-      ...doc,
-      permission: access?.permission || "read",
-      brandName: brand?.name || "",
-      departmentName: brand?.departmentId?.name || "",
-      departmentId: brand?.departmentId?._id || brand?.departmentId || null,
-      connectionStatus: doc.lastError ? "unavailable" : "ok",
-    });
+
+  const personal = await MailboxAccount.findOne({
+    kind: "personal",
+    ownerUserId: actor._id,
+    isActive: true,
+  }).lean();
+  if (personal) {
+    list.push(toListItem(personal, "manage", canSeeConnDetail));
   }
 
-  // Group by brand for UI
+  const accessRows = await MailboxUserAccess.find({ userId: actor._id }).lean();
+  if (accessRows.length) {
+    const mailboxIds = accessRows.map((a) => a.mailboxId);
+    const mailboxes = await MailboxAccount.find({
+      _id: { $in: mailboxIds },
+      isActive: true,
+      kind: { $ne: "personal" },
+    })
+      .populate({
+        path: "brandId",
+        select: "name departmentId",
+        populate: { path: "departmentId", select: "name" },
+      })
+      .lean();
+
+    const accessByMb = new Map(
+      accessRows.map((a) => [String(a.mailboxId), a]),
+    );
+
+    for (const m of mailboxes) {
+      const brand = m.brandId;
+      if (!isAssignmentDeptAligned(actor, brand)) continue;
+      const access = accessByMb.get(String(m._id));
+      list.push(
+        toListItem(m, access?.permission || "read", canSeeConnDetail),
+      );
+    }
+  }
+
+  // Brand mailboxes first; company (personal) last — reduces accidental client sends
+  const brandItems = list.filter((m) => m.kind !== "personal");
+  const personalItems = list.filter((m) => m.kind === "personal");
+  const orderedList = [...brandItems, ...personalItems];
+
+  const grouped = [];
   const byBrand = new Map();
-  for (const m of list) {
+  for (const m of brandItems) {
     const key = String(m.brandId?._id || m.brandId);
     if (!byBrand.has(key)) {
       byBrand.set(key, {
         brandId: key,
         brandName: m.brandName,
         departmentName: m.departmentName,
+        kind: "brand",
         mailboxes: [],
       });
     }
     byBrand.get(key).mailboxes.push(m);
   }
+  grouped.push(...byBrand.values());
+
+  if (personalItems.length) {
+    grouped.push({
+      brandId: "personal",
+      brandName: "My company email",
+      departmentName: "Internal",
+      kind: "personal",
+      mailboxes: personalItems,
+    });
+  }
 
   return res.status(200).json(
     new ApiResponse(
       200,
-      { mailboxes: list, grouped: [...byBrand.values()] },
+      { mailboxes: orderedList, grouped },
       "My mailboxes",
     ),
   );

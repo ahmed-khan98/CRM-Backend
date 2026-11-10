@@ -9,6 +9,10 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { generateAccessToken } from "../utils/paypalAuth.js";
+import {
+  brandHasDepartment,
+  brandPrimaryDepartmentId,
+} from "../utils/brandDepartments.js";
 const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL;
 
@@ -65,6 +69,18 @@ const createPaymentLink = asyncHandler(async (req, res) => {
   // Agent required only for FRESH sales
   if (saleType === "FRESH" && !resolvedAgent) {
     throw new ApiError(400, "Agent info is required when sale type is FRESH.");
+  }
+
+  if (brandId) {
+    const existBrand = await Brand.findById(brandId).select(
+      "departmentId departmentIds",
+    );
+    if (!existBrand) {
+      throw new ApiError(404, "Brand not found");
+    }
+    if (!brandHasDepartment(existBrand, departmentId)) {
+      throw new ApiError(400, "Brand is not linked to this department");
+    }
   }
 
   let finalClientId = clientId;
@@ -166,10 +182,20 @@ const updatePaymentLink = asyncHandler(async (req, res) => {
     );
   }
 
-  const existBrand = await Brand.findById(brandId);
+  const existBrand = await Brand.findById(brandId).select(
+    "departmentId departmentIds",
+  );
   if (!existBrand) {
     throw new ApiError(404, "Brand not found");
   }
+
+  // Keep payment's own department when still linked to brand; else primary
+  const nextDepartmentId = brandHasDepartment(
+    existBrand,
+    existPaymentlink.departmentId,
+  )
+    ? existPaymentlink.departmentId
+    : brandPrimaryDepartmentId(existBrand);
 
   const linkData = {
     leadId,
@@ -184,7 +210,7 @@ const updatePaymentLink = asyncHandler(async (req, res) => {
     amount,
     description,
     currency,
-    departmentId: existBrand?.departmentId,
+    departmentId: nextDepartmentId,
   };
 
   const link = await PaymentLink.findByIdAndUpdate(

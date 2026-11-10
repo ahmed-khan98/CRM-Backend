@@ -3,19 +3,30 @@ import { Department } from "../models/department.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  brandQueryForDepartment,
+  brandRoleFilterQuery,
+  parseDepartmentIdsFromBody,
+  syncBrandDepartmentFields,
+} from "../utils/brandDepartments.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
+async function assertDepartmentsExist(departmentIds) {
+  if (!departmentIds.length) {
+    throw new ApiError(400, "At least one department is required");
+  }
+  const found = await Department.find({ _id: { $in: departmentIds } }).select(
+    "_id",
+  );
+  if (found.length !== departmentIds.length) {
+    throw new ApiError(404, "One or more departments not found");
+  }
+}
+
 const createBrand = asyncHandler(async (req, res) => {
-  const { name, departmentId } = req.body;
-
-  if (!departmentId) {
-    throw new ApiError(400, "department is required");
-  }
-
-  const department = await Department.findById(departmentId);
-  if (!department) {
-    throw new ApiError(404, "department not found");
-  }
+  const { name } = req.body;
+  const departmentIds = parseDepartmentIdsFromBody(req.body);
+  await assertDepartmentsExist(departmentIds);
 
   if (!name) {
     throw new ApiError(400, "brand name is required");
@@ -34,7 +45,7 @@ const createBrand = asyncHandler(async (req, res) => {
 
   const brand = await Brand.create({
     name,
-    departmentId,
+    ...syncBrandDepartmentFields(departmentIds),
     image,
   });
 
@@ -49,12 +60,9 @@ const createBrand = asyncHandler(async (req, res) => {
 
 const updateBrand = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, departmentId } = req.body;
-
-  const department = await Department.findById(departmentId);
-  if (!department) {
-    throw new ApiError(404, "department not found");
-  }
+  const { name } = req.body;
+  const departmentIds = parseDepartmentIdsFromBody(req.body);
+  await assertDepartmentsExist(departmentIds);
 
   const existBrand = await Brand.findById(id);
 
@@ -62,28 +70,27 @@ const updateBrand = asyncHandler(async (req, res) => {
     throw new ApiError(409, "brand not found");
   }
 
-    let image = "";
-    const brandlogo = req.file;
-    if (brandlogo) {
-      const img = await uploadOnCloudinary(brandlogo, "PPI-Brand");
-  
-      if (!img.url) {
-        throw new ApiError(400, "brand logo is not uploaded");
-      }
-      image = img?.url;
-    }
+  let image = "";
+  const brandlogo = req.file;
+  if (brandlogo) {
+    const img = await uploadOnCloudinary(brandlogo, "PPI-Brand");
 
+    if (!img.url) {
+      throw new ApiError(400, "brand logo is not uploaded");
+    }
+    image = img?.url;
+  }
 
   const BrandData = {
     name,
-    departmentId,
-     ...(image !== "" && { image }),
+    ...syncBrandDepartmentFields(departmentIds),
+    ...(image !== "" && { image }),
   };
 
   const brand = await Brand.findOneAndUpdate(
     { _id: id },
     { $set: BrandData },
-    { new: true }
+    { new: true },
   );
 
   if (!brand) {
@@ -116,7 +123,9 @@ const deleteBrand = asyncHandler(async (req, res) => {
 
 const getBrandById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const brand = await Brand.findById(id);
+  const brand = await Brand.findById(id)
+    .populate("departmentId", "name")
+    .populate("departmentIds", "name");
   if (!brand) {
     throw new ApiError(404, "brand not found");
   }
@@ -124,8 +133,9 @@ const getBrandById = asyncHandler(async (req, res) => {
 });
 
 const getAllBrands = asyncHandler(async (req, res) => {
-  const brand = await Brand.find(req.roleFilter || {})
-    .populate("departmentId", "name");
+  const brand = await Brand.find(brandRoleFilterQuery(req.roleFilter || {}))
+    .populate("departmentId", "name")
+    .populate("departmentIds", "name");
   if (!brand) {
     throw new ApiError(404, "brand not found");
   }
@@ -142,10 +152,9 @@ const getAllBrandsByDepartmentId = asyncHandler(async (req, res) => {
     }
   }
 
-  const brand = await Brand.find({
-    departmentId,
-    ...(req.roleFilter || {}),
-  });
+  const brand = await Brand.find(brandQueryForDepartment(departmentId))
+    .populate("departmentId", "name")
+    .populate("departmentIds", "name");
   if (!brand) {
     throw new ApiError(404, "brand not found");
   }

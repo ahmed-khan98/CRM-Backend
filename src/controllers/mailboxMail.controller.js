@@ -55,10 +55,19 @@ function toListItem(m, permission, canSeeConnDetail) {
     brandName: isPersonal ? "Company" : brand?.name || "",
     departmentName: isPersonal
       ? "Internal"
-      : brand?.departmentId?.name || "",
+      : (Array.isArray(brand?.departmentIds) && brand.departmentIds.length
+          ? brand.departmentIds.map((d) => d?.name).filter(Boolean).join(", ")
+          : brand?.departmentId?.name) || "",
     departmentId: isPersonal
       ? null
       : brand?.departmentId?._id || brand?.departmentId || null,
+    departmentIds: isPersonal
+      ? []
+      : Array.isArray(brand?.departmentIds) && brand.departmentIds.length
+        ? brand.departmentIds.map((d) => d?._id || d)
+        : brand?.departmentId
+          ? [brand.departmentId?._id || brand.departmentId]
+          : [],
     connectionStatus: doc.lastError ? "unavailable" : "ok",
   };
 }
@@ -88,8 +97,11 @@ export const listMyMailboxes = asyncHandler(async (req, res) => {
     })
       .populate({
         path: "brandId",
-        select: "name departmentId",
-        populate: { path: "departmentId", select: "name" },
+        select: "name departmentId departmentIds",
+        populate: [
+          { path: "departmentId", select: "name" },
+          { path: "departmentIds", select: "name" },
+        ],
       })
       .lean();
 

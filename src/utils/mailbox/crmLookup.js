@@ -1,10 +1,11 @@
 import { Client } from "../../models/client.model.js";
 import { Lead } from "../../models/lead.model.js";
 import { Brand } from "../../models/brand.model.js";
+import { brandDepartmentIds } from "../brandDepartments.js";
 
 /**
  * Read-only Client / Lead lookup scoped to a mailbox brand.
- * Brand.departmentId is the source of truth for department alignment.
+ * Brand linked departments are the source of truth for department alignment.
  * Never returns records belonging to other brands.
  *
  * @param {string} email
@@ -23,23 +24,25 @@ export async function lookupCrmByEmail(email, scope) {
     return { client: null, lead: null };
   }
 
-  const brand = await Brand.findById(brandId).select("departmentId name").lean();
+  const brand = await Brand.findById(brandId)
+    .select("departmentId departmentIds name")
+    .lean();
   if (!brand) {
     return { client: null, lead: null };
   }
-  const brandDeptId = brand.departmentId ? String(brand.departmentId) : null;
+  const deptIds = brandDepartmentIds(brand);
 
   const brandFilter = { brandId };
-  // Prefer brand match; also require department alignment when present on record
-  const deptClause = brandDeptId
-    ? {
-        $or: [
-          { departmentId: brand.departmentId },
-          { departmentId: null },
-          { departmentId: { $exists: false } },
-        ],
-      }
-    : {};
+  const deptClause =
+    deptIds.length > 0
+      ? {
+          $or: [
+            { departmentId: { $in: deptIds } },
+            { departmentId: null },
+            { departmentId: { $exists: false } },
+          ],
+        }
+      : {};
 
   const [client, lead] = await Promise.all([
     Client.findOne({ email: addr, ...brandFilter, ...deptClause })

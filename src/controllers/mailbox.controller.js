@@ -46,6 +46,12 @@ import {
   updateAssignmentSchema,
   upsertPersonalMailboxSchema,
 } from "../utils/mailbox/schemas.js";
+import {
+  brandDepartmentEntries,
+  brandDepartmentIds,
+  brandHasDepartment,
+  brandPrimaryDepartmentId,
+} from "../utils/brandDepartments.js";
 
 async function getActor(req) {
   return loadActorFromDb(req.user._id);
@@ -61,27 +67,28 @@ function parseOrThrow(schema, body) {
 }
 
 /**
- * Compare brandEmail.departmentId vs Brand.departmentId (report-only).
+ * Compare brandEmail.departmentId vs Brand linked departments (report-only).
+ * OK when Domain.departmentId is any of the brand's departments (usually primary).
  */
 async function findBrandEmailDeptMismatches() {
   const rows = await Domain.find({}).select("email name brandId departmentId").lean();
   const brandIds = [...new Set(rows.map((r) => String(r.brandId)))];
   const brands = await Brand.find({ _id: { $in: brandIds } })
-    .select("departmentId name")
+    .select("departmentId departmentIds name")
     .lean();
   const brandMap = new Map(brands.map((b) => [String(b._id), b]));
   const mismatches = [];
   for (const row of rows) {
     const brand = brandMap.get(String(row.brandId));
     if (!brand) continue;
-    if (String(row.departmentId) !== String(brand.departmentId)) {
+    if (!brandHasDepartment(brand, row.departmentId)) {
       mismatches.push({
         brandEmailId: String(row._id),
         email: row.email,
         brandEmailDepartmentId: String(row.departmentId),
         brandId: String(row.brandId),
         brandName: brand.name,
-        brandDepartmentId: String(brand.departmentId),
+        brandDepartmentId: String(brandPrimaryDepartmentId(brand) || ""),
       });
     }
   }
@@ -180,8 +187,11 @@ export const listMailboxesGrouped = asyncHandler(async (req, res) => {
   const mailboxes = await MailboxAccount.find(mailboxQuery)
     .populate({
       path: "brandId",
-      select: "name departmentId",
-      populate: { path: "departmentId", select: "name" },
+      select: "name departmentId departmentIds",
+      populate: [
+        { path: "departmentId", select: "name" },
+        { path: "departmentIds", select: "name" },
+      ],
     })
     .populate("serverDefaultsId")
     .sort({ emailAddress: 1 })
@@ -206,41 +216,84 @@ export const listMailboxesGrouped = asyncHandler(async (req, res) => {
     });
   }
 
+  // DEP_ADMIN / scoped users: only show under their own department section.
+  // ADMIN/SUBADMIN: show shared brand under each linked department (for per-team assign).
+  const actorDept = actorDepartmentId(actor);
+  const mapAllDepts = canMapAllDepartments(actor);
+
   const deptMap = new Map();
   for (const m of mailboxes) {
     const brand = m.brandId;
-    const dept = brand?.departmentId;
-    const deptId = String(dept?._id || dept || "unknown");
-    const deptName = dept?.name || "Unknown";
-    if (!deptMap.has(deptId)) {
-      deptMap.set(deptId, {
-        departmentId: deptId,
-        departmentName: deptName,
-        brands: new Map(),
-      });
+    const entries = brandDepartmentEntries(brand);
+    let targets =
+      entries.length > 0
+        ? entries.map((e) => ({ deptId: e.id, deptName: e.name }))
+        : [{ deptId: "unknown", deptName: "Unknown" }];
+
+    if (!mapAllDepts) {
+      targets = actorDept
+        ? targets.filter((t) => t.deptId === String(actorDept))
+        : [];
+      // Shared brand in scope but department list empty/mismatch — still show under actor dept
+      if (!targets.length && actorDept) {
+        const own = entries.find((e) => e.id === String(actorDept));
+        targets = [
+          {
+            deptId: String(actorDept),
+            deptName: own?.name || "My department",
+          },
+        ];
+      }
     }
-    const d = deptMap.get(deptId);
-    const brandId = String(brand?._id || m.brandId);
-    if (!d.brands.has(brandId)) {
-      d.brands.set(brandId, {
-        brandId,
-        brandName: brand?.name || "Unknown",
-        mailboxes: [],
-      });
+
+    for (const { deptId, deptName } of targets) {
+      if (!deptMap.has(deptId)) {
+        deptMap.set(deptId, {
+          departmentId: deptId,
+          departmentName: deptName,
+          brands: new Map(),
+        });
+      }
+      const d = deptMap.get(deptId);
+      const brandId = String(brand?._id || m.brandId);
+      if (!d.brands.has(brandId)) {
+        d.brands.set(brandId, {
+          brandId,
+          brandName: brand?.name || "Unknown",
+          departmentIds: entries.map((e) => e.id),
+          departmentNames: entries.map((e) => e.name),
+          mailboxes: [],
+        });
+      }
+      let assignments = byMailbox.get(String(m._id)) || [];
+      // DEP_ADMIN counts / lists only own-department assignees on shared brands
+      if (!mapAllDepts && actorDept) {
+        assignments = assignments.filter((a) => {
+          const ud =
+            a.userId?.departmentId?._id || a.userId?.departmentId;
+          return String(ud) === String(actorDept);
+        });
+      }
+      // Avoid duplicating same mailbox object reference issues — push once per dept group
+      if (
+        !d.brands
+          .get(brandId)
+          .mailboxes.some((mb) => String(mb._id) === String(m._id))
+      ) {
+        d.brands.get(brandId).mailboxes.push({
+          ...sanitizeMailboxDoc(m),
+          assignedCount: assignments.length,
+          outOfScopeCount: assignments.filter((a) => a.outOfScope).length,
+          status: !m.isActive
+            ? "disabled"
+            : m.lastError
+              ? "error"
+              : m.lastConnectedAt
+                ? "connected"
+                : "unknown",
+        });
+      }
     }
-    const assignments = byMailbox.get(String(m._id)) || [];
-    d.brands.get(brandId).mailboxes.push({
-      ...sanitizeMailboxDoc(m),
-      assignedCount: assignments.length,
-      outOfScopeCount: assignments.filter((a) => a.outOfScope).length,
-      status: !m.isActive
-        ? "disabled"
-        : m.lastError
-          ? "error"
-          : m.lastConnectedAt
-            ? "connected"
-            : "unknown",
-    });
   }
 
   const grouped = [...deptMap.values()].map((d) => ({
@@ -273,7 +326,7 @@ export const listBrandEmailsForPicker = asyncHandler(async (req, res) => {
   }
 
   const rows = await Domain.find({})
-    .populate("brandId", "name departmentId")
+    .populate("brandId", "name departmentId departmentIds")
     .select("name email brandId departmentId")
     .lean();
 
@@ -284,25 +337,25 @@ export const listBrandEmailsForPicker = asyncHandler(async (req, res) => {
 
   const mismatches = [];
   const data = filtered.map((r) => {
-    const brandDept = r.brandId?.departmentId;
-    const mismatch =
-      brandDept && String(r.departmentId) !== String(brandDept);
+    const brand = r.brandId;
+    const brandDept = brandPrimaryDepartmentId(brand);
+    const mismatch = brand && !brandHasDepartment(brand, r.departmentId);
     if (mismatch) {
       mismatches.push({
         brandEmailId: String(r._id),
         email: r.email,
         brandEmailDepartmentId: String(r.departmentId),
-        brandDepartmentId: String(brandDept),
+        brandDepartmentId: String(brandDept || ""),
       });
     }
     return {
       _id: r._id,
       name: r.name,
       email: r.email,
-      brandId: r.brandId?._id || r.brandId,
-      brandName: r.brandId?.name,
-      /** Permission decisions use Brand.departmentId only */
+      brandId: brand?._id || r.brandId,
+      brandName: brand?.name,
       brandDepartmentId: brandDept,
+      brandDepartmentIds: brandDepartmentIds(brand).map(String),
       brandEmailDepartmentId: r.departmentId,
       departmentMismatch: Boolean(mismatch),
     };
@@ -319,8 +372,9 @@ export const listBrandsForMapping = asyncHandler(async (req, res) => {
   const brandIds = await scopedBrandIds(actor);
   const query = brandIds ? { _id: { $in: brandIds } } : {};
   const brands = await Brand.find(query)
-    .select("name departmentId")
+    .select("name departmentId departmentIds")
     .populate("departmentId", "name")
+    .populate("departmentIds", "name")
     .sort({ name: 1 })
     .lean();
   return res.status(200).json(new ApiResponse(200, brands, "Brands fetched"));
@@ -458,7 +512,9 @@ export const createMailbox = asyncHandler(async (req, res) => {
   const data = parseOrThrow(createMailboxSchema, req.body);
   await assertBrandInScope(actor, data.brandId);
 
-  const brand = await Brand.findById(data.brandId).select("departmentId name");
+  const brand = await Brand.findById(data.brandId).select(
+    "departmentId departmentIds name",
+  );
   if (!brand) throw new ApiError(404, "Brand not found");
 
   if (data.brandEmailId) {
@@ -634,10 +690,19 @@ export const getMailboxAssignments = asyncHandler(async (req, res) => {
     .populate("assignedBy", "fullName")
     .lean();
 
-  const data = rows.map((r) => ({
+  let data = rows.map((r) => ({
     ...r,
     outOfScope: !isAssignmentDeptAligned(r.userId, brand),
   }));
+
+  // DEP_ADMIN: only see assignees from own department (shared brand mailboxes)
+  if (!canMapAllDepartments(actor)) {
+    const actorDept = actorDepartmentId(actor);
+    data = data.filter((r) => {
+      const ud = r.userId?.departmentId?._id || r.userId?.departmentId;
+      return actorDept && String(ud) === String(actorDept);
+    });
+  }
 
   return res
     .status(200)
@@ -732,17 +797,18 @@ export const removeAssignment = asyncHandler(async (req, res) => {
   );
 
   const target = await Employee.findById(req.params.userId);
-  // Allow remove even if out of scope for admin; dep-admin only if still in scope brand
+  // Admin/subadmin: can remove anyone. DEP_ADMIN: only own-department users.
   if (!canMapAllDepartments(actor)) {
     const actorDept = actorDepartmentId(actor);
-    if (String(brand.departmentId) !== String(actorDept)) {
+    if (!brandHasDepartment(brand, actorDept)) {
       throw new ApiError(403, "Outside your department scope");
     }
-    if (
-      target &&
-      String(target.departmentId) !== String(actorDept)
-    ) {
-      // still allow remove of stale assignment in own mailbox
+    const targetDept = target?.departmentId?._id || target?.departmentId;
+    if (!target || String(targetDept) !== String(actorDept)) {
+      throw new ApiError(
+        403,
+        "You can only remove users from your own department",
+      );
     }
   }
 
@@ -807,8 +873,11 @@ export const getAssignmentsByUser = asyncHandler(async (req, res) => {
       path: "mailboxId",
       populate: {
         path: "brandId",
-        select: "name departmentId",
-        populate: { path: "departmentId", select: "name" },
+        select: "name departmentId departmentIds",
+        populate: [
+          { path: "departmentId", select: "name" },
+          { path: "departmentIds", select: "name" },
+        ],
       },
     })
     .lean();

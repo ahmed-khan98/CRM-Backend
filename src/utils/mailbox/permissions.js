@@ -3,6 +3,10 @@ import { Employee } from "../../models/employee.model.js";
 import { MailboxAccount } from "../../models/mailboxAccount.model.js";
 import { MailboxUserAccess } from "../../models/mailboxUserAccess.model.js";
 import { ApiError } from "../ApiError.js";
+import {
+  brandHasDepartment,
+  brandQueryForDepartment,
+} from "../brandDepartments.js";
 import { withHiddenEmployeesExcluded } from "../hiddenEmployees.js";
 
 /** @typedef {"ADMIN"|"SUBADMIN"|"DEP_ADMIN"|"USER"|"HR_ADMIN"|"FINANCE_ADMIN"} MailboxRole */
@@ -80,7 +84,9 @@ export async function scopedBrandIds(actor) {
   if (canMapAllDepartments(actor)) return null;
   const deptId = actorDepartmentId(actor);
   if (!deptId) return [];
-  const brands = await Brand.find({ departmentId: deptId }).select("_id").lean();
+  const brands = await Brand.find(brandQueryForDepartment(deptId))
+    .select("_id")
+    .lean();
   return brands.map((b) => String(b._id));
 }
 
@@ -91,9 +97,11 @@ export async function scopedBrandIds(actor) {
 export async function assertBrandInScope(actor, brandId) {
   if (canMapAllDepartments(actor)) return;
   const deptId = actorDepartmentId(actor);
-  const brand = await Brand.findById(brandId).select("departmentId").lean();
+  const brand = await Brand.findById(brandId)
+    .select("departmentId departmentIds")
+    .lean();
   if (!brand) throw new ApiError(404, "Brand not found");
-  if (String(brand.departmentId) !== String(deptId)) {
+  if (!brandHasDepartment(brand, deptId)) {
     throw new ApiError(403, "Brand is outside your department scope");
   }
 }
@@ -118,30 +126,29 @@ export async function loadMailboxInMappingScope(actor, mailboxId, opts = {}) {
   }
   await assertBrandInScope(actor, mailbox.brandId);
   const brand = await Brand.findById(mailbox.brandId)
-    .select("name departmentId")
+    .select("name departmentId departmentIds")
     .lean();
   if (!brand) throw new ApiError(404, "Brand not found for mailbox");
   return { mailbox, brand };
 }
 
 /**
- * Assignment is "in scope" (active for mail access) when the assignee's
- * department matches the mailbox brand's department.
+ * Assignment is "in scope" when the assignee's department is one of the
+ * brand's linked departments (shared brand across teams).
  * @param {{ departmentId?: unknown }} user
- * @param {{ departmentId?: unknown }} brand
+ * @param {{ departmentId?: unknown, departmentIds?: unknown[] }} brand
  */
 export function isAssignmentDeptAligned(user, brand) {
   const u = user?.departmentId?._id || user?.departmentId;
-  const b = brand?.departmentId?._id || brand?.departmentId;
-  if (!u || !b) return false;
-  return String(u) === String(b);
+  if (!u) return false;
+  return brandHasDepartment(brand, u);
 }
 
 /**
  * DEP_ADMIN may only assign users in own department to mailboxes whose
- * brand is in own department. ADMIN/SUBADMIN: any, but user+brand must align.
+ * brand includes own department. ADMIN/SUBADMIN: user dept must be on brand.
  * @param {import("mongoose").Document} actor
- * @param {object} brand - with departmentId
+ * @param {object} brand - with departmentId / departmentIds
  * @param {import("mongoose").Document} targetUser
  */
 export function assertCanAssignUser(actor, brand, targetUser) {
@@ -150,21 +157,23 @@ export function assertCanAssignUser(actor, brand, targetUser) {
     throw new ApiError(400, "Cannot assign inactive user");
   }
 
-  const brandDept = String(brand.departmentId?._id || brand.departmentId);
   const userDept = String(
     targetUser.departmentId?._id || targetUser.departmentId,
   );
 
-  if (brandDept !== userDept) {
+  if (!brandHasDepartment(brand, userDept)) {
     throw new ApiError(
       400,
-      "User and mailbox brand must belong to the same department",
+      "User department is not linked to this mailbox brand",
     );
   }
 
   if (!canMapAllDepartments(actor)) {
     const actorDept = actorDepartmentId(actor);
-    if (String(actorDept) !== brandDept || String(actorDept) !== userDept) {
+    if (
+      !brandHasDepartment(brand, actorDept) ||
+      String(actorDept) !== userDept
+    ) {
       throw new ApiError(403, "Assignment is outside your department scope");
     }
   }
@@ -236,7 +245,7 @@ export async function getActiveMailboxAccess(userId, mailboxId) {
   if (!access) return null;
 
   const brand = await Brand.findById(mailbox.brandId)
-    .select("name departmentId")
+    .select("name departmentId departmentIds")
     .lean();
   if (!brand) return null;
 

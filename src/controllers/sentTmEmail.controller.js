@@ -11,6 +11,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 import formData from "form-data";
 import Mailgun from "mailgun.js";
 import { extractDomainName } from "../utils/extractDomainName.js";
+import {
+  brandHasDepartment,
+  brandPrimaryDepartmentId,
+} from "../utils/brandDepartments.js";
+
+function resolveEmailDepartmentId(brand, actor) {
+  const actorDept = actor?.departmentId?._id || actor?.departmentId;
+  if (brandHasDepartment(brand, actorDept)) return actorDept;
+  return brandPrimaryDepartmentId(brand);
+}
 
 const DOMAIN = process.env.MAILGUN_DOMAIN;
 const API_KEY = process.env.MAILGUN_API_KEY;
@@ -185,7 +195,7 @@ const sendTmBulkEmails = asyncHandler(async (req, res) => {
     senderId: req?.user?._id,
     listId,
     brandId,
-    departmentId: existBrand?.departmentId,
+    departmentId: resolveEmailDepartmentId(existBrand, req?.user),
   });
 
   return res

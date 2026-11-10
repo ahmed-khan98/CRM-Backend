@@ -3,6 +3,10 @@ import { Domain } from "../models/brandEmail.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  brandPrimaryDepartmentId,
+  brandRoleFilterQuery,
+} from "../utils/brandDepartments.js";
 
 const createBrandEmail = asyncHandler(async (req, res) => {
   const { name, email, brandId } = req.body;
@@ -20,7 +24,7 @@ const createBrandEmail = asyncHandler(async (req, res) => {
     name,
     email,
     brandId,
-    departmentId: existBrand?.departmentId,
+    departmentId: brandPrimaryDepartmentId(existBrand),
   });
 
   if (!brandEmail) {
@@ -48,7 +52,7 @@ const updateBrandEmail = asyncHandler(async (req, res) => {
     name,
     email,
     brandId,
-    departmentId: existBrand?.departmentId,
+    departmentId: brandPrimaryDepartmentId(existBrand),
   };
 
   const brandEmail = await Domain.findOneAndUpdate(
@@ -110,9 +114,13 @@ const getBrandEmailByBrandId = asyncHandler(async (req, res) => {
 });
 
 const getAllBrandEmails = asyncHandler(async (req, res) => {
-  const brandEmails = await Domain.find({ ...req.roleFilter })
+  // Scope via brand ↔ departments (shared brand), not Domain.departmentId alone
+  const brandQuery = brandRoleFilterQuery(req.roleFilter || {});
+  const brands = await Brand.find(brandQuery).select("_id").lean();
+  const brandIds = brands.map((b) => b._id);
+  const brandEmails = await Domain.find({ brandId: { $in: brandIds } })
     .sort({ createdAt: -1 })
-    .populate("brandId", "name");
+    .populate("brandId", "name departmentId departmentIds");
   if (!brandEmails) {
     throw new ApiError(404, "Brand email not found");
   }

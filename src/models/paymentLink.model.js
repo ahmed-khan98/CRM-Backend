@@ -34,6 +34,7 @@ const paymentLinkSchema = new mongoose.Schema(
       type: String,
       enum: [
         "stripe",
+        "Stripe",
         "Kinatech Business Solutions LLC",
         "Skyliner Trading LLC",
         "Augmentus",
@@ -45,6 +46,7 @@ const paymentLinkSchema = new mongoose.Schema(
       required: true,
     },
     paypalOrderId: { type: String },
+    stripePaymentIntentId: { type: String },
     amount: { type: Number, required: true },
     currency: {
       type: String,

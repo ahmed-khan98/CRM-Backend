@@ -186,6 +186,7 @@ export const saveDraft = asyncHandler(async (req, res) => {
   const normalized = validateAndNormalizeAttachments(
     Array.isArray(req.body?.attachments) ? req.body.attachments : [],
   );
+  
   const attachments = normalized.map((a) => ({
     filename: a.filename,
     contentType: a.contentType,

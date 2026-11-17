@@ -6,6 +6,7 @@ const DEFAULT_ORIGINS = [
   "https://www.zytronworld.online",
   "https://zytronworld.online",
   "http://localhost:3000",
+  "http://localhost:3001",
   "http://127.0.0.1:3000",
   "https://crm-virid-nine-17.vercel.app",
   "https://customer-payment-link.vercel.app",

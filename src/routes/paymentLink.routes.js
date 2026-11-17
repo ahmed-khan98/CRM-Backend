@@ -11,6 +11,9 @@ import {
   updatePaymentLink,
   createPaypalOrderLinkById,
   paymentChargerByOrderId,
+  createStripePaymentIntent,
+  confirmStripePayment,
+  stripeWebhook,
   statusChange,
 } from "../controllers/paymentLink.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -26,6 +29,9 @@ router.route("/").get(verifyJWT,checkRole(...allowRoles),filterByRole,getAllPaym
 router.route("/add").post(verifyJWT,checkRole(...allowRoles),createPaymentLink);
 router.route("/pay-with-paypal").post(createPaypalOrderLinkById);
 router.route("/pay-with-paypal/:orderID/charge").post(paymentChargerByOrderId);
+router.route("/pay-with-stripe/create-intent").post(createStripePaymentIntent);
+router.route("/pay-with-stripe/confirm").post(confirmStripePayment);
+router.route("/webhooks/stripe").post(stripeWebhook);
 router.route("/lead/:leadId/payments").get(verifyJWT, checkRole(...allowRoles), getPaymentLinksByLeadId);
 router.route("/client/:clientId/activity").get(verifyJWT, checkRole(...allowRoles), getPaymentLinksByClientId);
 router.route("/:brandId/brandPaymentLink").get(verifyJWT,getPaymentLinksByBrandId);

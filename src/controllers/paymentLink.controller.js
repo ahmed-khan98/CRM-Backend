@@ -10,11 +10,70 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { generateAccessToken } from "../utils/paypalAuth.js";
 import {
+  createPaymentIntent,
+  getStripeConfig,
+  retrievePaymentIntent,
+} from "../utils/stripeClient.js";
+import {
   brandHasDepartment,
   brandPrimaryDepartmentId,
 } from "../utils/brandDepartments.js";
 const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL;
+
+const isStripeMerchant = (type) =>
+  type === "Stripe" || type === "stripe";
+
+const toSaleMerchantType = (type) =>
+  isStripeMerchant(type) ? "Stripe" : type;
+
+const createSaleFromPaymentLink = async (linkDetails, safeMonthId) => {
+  return Sale.create({
+    ...(linkDetails.brandId && { brandId: linkDetails.brandId }),
+    ...(linkDetails.clientId && { clientId: linkDetails.clientId }),
+    departmentId: linkDetails.departmentId,
+    monthId: safeMonthId,
+    paymentId: linkDetails._id,
+    merchantType: toSaleMerchantType(linkDetails.merchantType),
+    service: linkDetails.service,
+    amount: linkDetails.amount,
+    description: linkDetails.description,
+    seller: linkDetails.seller,
+    type: linkDetails.type || "FRESH",
+    saleDate: linkDetails.paidAt,
+    ...(linkDetails.currency && { currency: linkDetails.currency }),
+    ...(linkDetails.agent && { agent: linkDetails.agent }),
+  });
+};
+
+const markPaymentLinkPaidAndCreateSale = async (
+  linkDetails,
+  { stripePaymentIntentId } = {},
+) => {
+  const existingMonth = await Month.findOne({ status: "OPEN" });
+  const safeMonthId = existingMonth
+    ? existingMonth._id
+    : new mongoose.Types.ObjectId();
+
+  const updated = await PaymentLink.findOneAndUpdate(
+    { _id: linkDetails._id, paymentStatus: "pending" },
+    {
+      $set: {
+        paymentStatus: "paid",
+        paidAt: new Date(),
+        ...(stripePaymentIntentId && { stripePaymentIntentId }),
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    return PaymentLink.findById(linkDetails._id);
+  }
+
+  await createSaleFromPaymentLink(updated, safeMonthId);
+  return updated;
+};
 
 const pickValidObjectId = (...values) => {
   for (const value of values) {
@@ -387,17 +446,27 @@ const getPaymentLinkById = asyncHandler(async (req, res) => {
     // return res.status(404).json({ error: 'Lead not found' });
   }
 
-  const client_id =
-    link.merchantType === "Skyliner Trading LLC"
+  const isStripe = isStripeMerchant(link.merchantType);
+  const client_id = isStripe
+    ? null
+    : link.merchantType === "Skyliner Trading LLC"
       ? process.env.PAYPAL3_CLIENT_ID
       : process.env.PAYPAL1_CLIENT_ID;
+
+  const stripe = getStripeConfig();
 
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
-        { ...link, paypalClientId: client_id },
+        {
+          ...link,
+          paypalClientId: client_id,
+          ...(isStripe && {
+            stripePublishableKey: stripe.publishableKey || null,
+          }),
+        },
         "Payment link found",
       ),
     );
@@ -584,22 +653,7 @@ const paymentChargerByOrderId = asyncHandler(async (req, res) => {
       await linkDetails.save();
     }
 
-    const createSale = await Sale.create({
-      ...(linkDetails.brandId && { brandId: linkDetails.brandId }),
-      ...(linkDetails.clientId && { clientId: linkDetails.clientId }),
-      departmentId: linkDetails.departmentId,
-      monthId: safeMonthId,
-      paymentId: linkDetails._id,
-      merchantType: linkDetails.merchantType,
-      service: linkDetails.service,
-      amount: linkDetails.amount,
-      description: linkDetails.description,
-      seller: linkDetails.seller ,
-      type: linkDetails.type || "FRESH",
-      saleDate: linkDetails.paidAt,
-      ...(linkDetails.currency && { currency: linkDetails.currency }),
-      ...(linkDetails.agent && { agent: linkDetails.agent }),
-    });
+    await createSaleFromPaymentLink(linkDetails, safeMonthId);
   }
 
   return res.status(200).json({
@@ -610,6 +664,156 @@ const paymentChargerByOrderId = asyncHandler(async (req, res) => {
       linkDetails: linkDetails, // Front-end successful dynamic check complete template return
     },
   });
+});
+
+/**
+ * Create Stripe PaymentIntent for a payment link.
+ * Body: { id }
+ * Returns: { clientSecret, paymentIntentId }
+ */
+const createStripePaymentIntent = asyncHandler(async (req, res) => {
+  const { id } = req.body || {};
+  if (!id) throw new ApiError(400, "Payment link id is required");
+
+  const linkDetails = await PaymentLink.findById(id);
+  if (!linkDetails) throw new ApiError(404, "Payment link not found");
+  if (!isStripeMerchant(linkDetails.merchantType)) {
+    throw new ApiError(400, "This payment link is not configured for Stripe");
+  }
+  if (!linkDetails.isActive) {
+    throw new ApiError(400, "Payment link is disabled");
+  }
+  if (linkDetails.paymentStatus !== "pending") {
+    throw new ApiError(400, "Payment link already paid or invalid");
+  }
+
+  let intent;
+  try {
+    intent = await createPaymentIntent({
+      amount: linkDetails.amount,
+      currency: linkDetails.currency || "USD",
+      paymentLinkId: linkDetails._id,
+      description:
+        linkDetails.description ||
+        `Payment link ${linkDetails._id}`,
+    });
+  } catch (err) {
+    console.error("STRIPE INTENT ERROR:", err?.message || err);
+    throw new ApiError(502, err.message || "Failed to create Stripe payment");
+  }
+
+  linkDetails.stripePaymentIntentId = intent.id;
+  await linkDetails.save();
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        clientSecret: intent.client_secret,
+        paymentIntentId: intent.id,
+      },
+      "Stripe PaymentIntent created",
+    ),
+  );
+});
+
+/**
+ * Confirm Stripe payment after Elements success.
+ * Body: { id, paymentIntentId }
+ */
+const confirmStripePayment = asyncHandler(async (req, res) => {
+  const { id, paymentIntentId } = req.body || {};
+  if (!id || !paymentIntentId) {
+    throw new ApiError(400, "Payment link id and paymentIntentId are required");
+  }
+
+  const linkDetails = await PaymentLink.findById(id);
+  if (!linkDetails) throw new ApiError(404, "Payment link not found");
+  if (!isStripeMerchant(linkDetails.merchantType)) {
+    throw new ApiError(400, "This payment link is not configured for Stripe");
+  }
+
+  if (linkDetails.paymentStatus === "paid") {
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        { status: "succeeded", linkDetails },
+        "Payment already recorded",
+      ),
+    );
+  }
+
+  let intent;
+  try {
+    intent = await retrievePaymentIntent(paymentIntentId);
+  } catch (err) {
+    console.error("STRIPE RETRIEVE ERROR:", err?.message || err);
+    throw new ApiError(502, err.message || "Failed to verify Stripe payment");
+  }
+
+  if (intent.metadata?.paymentLinkId !== String(linkDetails._id)) {
+    throw new ApiError(400, "PaymentIntent does not match this payment link");
+  }
+
+  if (intent.status !== "succeeded") {
+    throw new ApiError(
+      402,
+      `Stripe payment not completed (status: ${intent.status})`,
+    );
+  }
+
+  const updated = await markPaymentLinkPaidAndCreateSale(linkDetails, {
+    stripePaymentIntentId: intent.id,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      { status: intent.status, paymentIntentId: intent.id, linkDetails: updated },
+      "Payment processed and charged successfully",
+    ),
+  );
+});
+
+/**
+ * Optional Stripe webhook (payment_intent.succeeded).
+ * Primary flow is confirmStripePayment (sync after Elements).
+ */
+const stripeWebhook = asyncHandler(async (req, res) => {
+  const { webhookSecret } = getStripeConfig();
+  let event = req.body;
+
+  if (webhookSecret) {
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const signature = req.headers["stripe-signature"];
+    try {
+      const rawBody = req.rawBody || JSON.stringify(req.body);
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    } catch (err) {
+      console.error("STRIPE WEBHOOK SIGNATURE ERROR:", err.message);
+      throw new ApiError(400, `Webhook Error: ${err.message}`);
+    }
+  }
+
+  if (event?.type === "payment_intent.succeeded") {
+    const intent = event.data?.object;
+    const paymentLinkId = intent?.metadata?.paymentLinkId;
+    if (paymentLinkId && mongoose.Types.ObjectId.isValid(paymentLinkId)) {
+      const linkDetails = await PaymentLink.findById(paymentLinkId);
+      if (
+        linkDetails &&
+        isStripeMerchant(linkDetails.merchantType) &&
+        linkDetails.paymentStatus !== "paid"
+      ) {
+        await markPaymentLinkPaidAndCreateSale(linkDetails, {
+          stripePaymentIntentId: intent.id,
+        });
+      }
+    }
+  }
+
+  return res.status(200).json({ received: true });
 });
 
 const statusChange = asyncHandler(async (req, res) => {
@@ -719,5 +923,8 @@ export {
   getPaymentLinksByClientId,
   createPaypalOrderLinkById,
   paymentChargerByOrderId,
+  createStripePaymentIntent,
+  confirmStripePayment,
+  stripeWebhook,
   statusChange,
 };
